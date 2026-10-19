@@ -1,158 +1,210 @@
 package dev.bare.launcher;
 
+import android.animation.TimeInterpolator;
+import android.animation.ValueAnimator;
 import android.content.Context;
-import android.graphics.Color;
+import android.graphics.Canvas;
 import android.graphics.Outline;
 import android.graphics.Rect;
 import android.graphics.Typeface;
-import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.os.Build;
 import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewOutlineProvider;
-import android.view.animation.DecelerateInterpolator;
+import android.view.animation.LinearInterpolator;
+import android.view.animation.OvershootInterpolator;
+import android.view.animation.PathInterpolator;
 import android.widget.FrameLayout;
-import android.widget.ImageView;
 import android.widget.TextView;
 
 /**
- * A 16:9 card with a white focus ring that sits a few dp outside it, Google-TV style.
- * The tile is slightly larger than the card to leave room for the ring; neighbours
- * butt up against each other and the rings supply the gap.
+ * One app on the grid. At rest it is flat and slightly dimmed. Focused, it lifts towards
+ * you: it grows, casts a shadow, catches a sheen across its top and a single glint, and its
+ * name appears underneath. That is the only place names are shown.
  */
 final class Tile extends FrameLayout {
-    /** gap between card and ring + ring stroke, in dp */
-    static final int PAD_DP = 7;
+    interface Host { void onTileFocused(Tile t); }
 
-    interface OnFocused { void onFocused(Tile t); }
+    static final float LIFT = 1.1f;
+    static final TimeInterpolator EASE = new PathInterpolator(0.2f, 0f, 0f, 1f);
 
-    final Entry entry;
-    OnFocused onFocused;
-    private final GradientDrawable ring = new GradientDrawable();
+    Entry entry;
+    Host host;
+    final int cardW, cardH;
+    final FrameLayout lift;
+    private final ArtView art;
+    private final View shade, sheen, glint;
+    private final TextView label;
+    private final float d;
+    private final boolean rich;
+    private boolean held;
+    private ValueAnimator wobble;
 
-    Tile(Context c, Entry e, int cardW, int cardH) {
+    Tile(Context c, Entry e, int cardW, int cardH, int labelSpace, boolean rich) {
         super(c);
-        entry = e;
-        float d = c.getResources().getDisplayMetrics().density;
-        int pad = Math.round(PAD_DP * d);
+        this.cardW = cardW;
+        this.cardH = cardH;
+        this.rich = rich;
+        d = c.getResources().getDisplayMetrics().density;
         setFocusable(true);
         setClickable(true);
         setClipChildren(false);
+        setClipToPadding(false);
+        if (Build.VERSION.SDK_INT >= 26) setDefaultFocusHighlightEnabled(false);
 
-        ring.setCornerRadius(16 * d);
-        ring.setStroke(Math.round(3 * d), Color.WHITE);
-        ring.setColor(Color.TRANSPARENT);
-        ring.setAlpha(0);
-        View ringView = new View(c);
-        ringView.setBackground(ring);
-        addView(ringView, new LayoutParams(cardW + 2 * pad, cardH + 2 * pad));
+        final float r = Math.max(8 * d, cardW * 0.072f);
+        lift = new FrameLayout(c);
+        lift.setOutlineProvider(new ViewOutlineProvider() {
+            @Override public void getOutline(View v, Outline o) { o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), r); }
+        });
+        lift.setClipToOutline(true);
+        lift.setPivotX(cardW / 2f);
+        lift.setPivotY(cardH / 2f);
+        addView(lift, new LayoutParams(cardW, cardH));
 
-        View card = card(c, e, cardW, cardH, 12, 1f);
-        LayoutParams lp = new LayoutParams(cardW, cardH);
-        lp.leftMargin = pad;
-        lp.topMargin = pad;
-        addView(card, lp);
+        art = new ArtView(c);
+        lift.addView(art, new LayoutParams(-1, -1));
 
-        setPivotX((cardW + 2 * pad) / 2f);
-        setPivotY((cardH + 2 * pad) / 2f);
+        shade = new View(c);
+        shade.setBackgroundColor(0x2E000000);
+        lift.addView(shade, new LayoutParams(-1, -1));
+
+        // Light from above: a soft wash over the top half, only while lifted.
+        sheen = new View(c);
+        sheen.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[] { 0x33FFFFFF, 0x0DFFFFFF, 0x00FFFFFF }));
+        sheen.setAlpha(0f);
+        lift.addView(sheen, new LayoutParams(-1, -1));
+
+        // A narrow specular band that crosses the card once when it is focused.
+        glint = new View(c);
+        glint.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                new int[] { 0x00FFFFFF, 0x2EFFFFFF, 0x00FFFFFF }));
+        glint.setRotation(16f);
+        glint.setTranslationX(-cardW);
+        LayoutParams gl = new LayoutParams(Math.round(cardW * 0.38f), cardH * 2, Gravity.CENTER_VERTICAL);
+        lift.addView(glint, gl);
+
+        // Hairline rim, like the edge of a pane of glass.
+        View rim = new View(c);
+        GradientDrawable rd = new GradientDrawable();
+        rd.setCornerRadius(r);
+        rd.setStroke(Math.max(1, Math.round(d)), 0x1AFFFFFF);
+        rim.setBackground(rd);
+        lift.addView(rim, new LayoutParams(-1, -1));
+
+        label = new TextView(c);
+        label.setTextSize(15);
+        label.setTextColor(0xFFFFFFFF);
+        label.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        label.setGravity(Gravity.CENTER_HORIZONTAL);
+        label.setSingleLine();
+        label.setEllipsize(TextUtils.TruncateAt.END);
+        label.setShadowLayer(6 * d, 0, d, 0x99000000);
+        label.setAlpha(0f);
+        int extra = Math.round(cardW * 0.08f);
+        LayoutParams ll = new LayoutParams(cardW + 2 * extra, -2);
+        ll.leftMargin = -extra;
+        ll.topMargin = cardH + Math.round(cardH * (LIFT - 1f) / 2f) + Math.round(10 * d);
+        addView(label, ll);
+
+        setLayoutParams(new LayoutParams(cardW, cardH + labelSpace));
+        bind(e);
     }
 
-    static int sizeFor(int cardPx, Context c) {
-        return cardPx + 2 * Math.round(PAD_DP * c.getResources().getDisplayMetrics().density);
+    void bind(Entry e) {
+        entry = e;
+        label.setText(e.kind == Entry.ADD ? "Add" : e.label);
+        art.invalidate();
     }
+
+    /** Keeps the tile lifted while a menu or move is in progress for it. */
+    void setHeld(boolean h) {
+        if (held == h) return;
+        held = h;
+        render();
+    }
+
+    boolean isLit() { return isFocused() || held; }
 
     @Override
     protected void onFocusChanged(boolean gain, int direction, Rect prev) {
         super.onFocusChanged(gain, direction, prev);
-        float s = gain ? 1.06f : 1f;
-        animate().scaleX(s).scaleY(s).setDuration(140).setInterpolator(new DecelerateInterpolator()).start();
-        ring.setAlpha(gain ? 255 : 0);
-        invalidate();
-        if (gain && onFocused != null) onFocused.onFocused(this);
+        render();
+        if (gain) {
+            if (rich) sweep();
+            if (host != null) host.onTileFocused(this);
+        }
     }
 
-    // ------------------------------------------------------------------ card art
+    private void render() {
+        boolean on = isLit();
+        float s = on ? LIFT : 1f;
+        lift.animate().scaleX(s).scaleY(s).translationX(0).translationY(0)
+                .translationZ(on ? 16 * d : 0)
+                .setDuration(on ? 280 : 220).setInterpolator(EASE).start();
+        shade.animate().alpha(on ? 0f : 1f).setDuration(220).start();
+        sheen.animate().alpha(on ? 1f : 0f).setDuration(on ? 320 : 160).start();
+        label.animate().alpha(on ? 1f : 0f).translationY(on ? 0 : -6 * d)
+                .setDuration(on ? 260 : 120).setInterpolator(EASE).start();
+    }
 
-    /** The card itself: the app's TV banner when it has one, otherwise its icon on a tinted plate. */
-    static View card(Context c, Entry e, int w, int h, float radiusDp, float textScale) {
-        final float d = c.getResources().getDisplayMetrics().density;
-        final float r = radiusDp * d;
-        FrameLayout f = new FrameLayout(c);
-        f.setOutlineProvider(new ViewOutlineProvider() {
-            @Override public void getOutline(View v, Outline o) { o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), r); }
-        });
-        f.setClipToOutline(true);
+    private void sweep() {
+        glint.animate().cancel();
+        glint.setTranslationX(-cardW * 0.75f);
+        glint.animate().translationX(cardW * 1.1f).setStartDelay(120).setDuration(950)
+                .setInterpolator(EASE).start();
+    }
 
-        if (e.add) {
-            GradientDrawable g = new GradientDrawable();
-            g.setCornerRadius(r);
-            g.setColor(0x14FFFFFF);
-            g.setStroke(Math.round(2 * d), 0x55FFFFFF, 8 * d, 6 * d);
-            f.setBackground(g);
-            TextView plus = text(c, "+", 38 * textScale, 0xFFE3E3E8, "sans-serif-light");
-            f.addView(plus, new LayoutParams(-1, -1));
-            return f;
-        }
+    /** A click: the card dips for a moment under your thumb. */
+    @Override
+    public void setPressed(boolean p) {
+        boolean was = isPressed();
+        super.setPressed(p);
+        if (was == p || !isLit()) return;
+        float s = p ? LIFT * 0.955f : LIFT;
+        lift.animate().scaleX(s).scaleY(s).setDuration(p ? 90 : 240).setInterpolator(EASE).start();
+    }
 
-        if (e.banner != null) {
-            ImageView iv = new ImageView(c);
-            iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            iv.setImageDrawable(copy(e.banner));
-            f.addView(iv, new LayoutParams(-1, -1));
-            return f;
-        }
+    /** Focus arrives from direction (dx, dy): start a few dp back along it, then settle. */
+    void arrive(int dx, int dy) {
+        lift.setTranslationX(-dx * 5 * d);
+        lift.setTranslationY(-dy * 5 * d);
+    }
 
-        GradientDrawable plate = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                new int[] { mix(e.glow, 0xFF26272B, 0.34f), mix(e.glow, 0xFF17181B, 0.16f) });
-        f.setBackground(plate);
+    /** Pushed against an edge: lean that way and spring back. */
+    void bump(final int dx, final int dy) {
+        lift.animate().translationX(dx * 7 * d).translationY(dy * 7 * d).setDuration(90)
+                .setInterpolator(EASE).withEndAction(() -> lift.animate().translationX(0).translationY(0)
+                        .setDuration(380).setInterpolator(new OvershootInterpolator(2.5f)).start())
+                .start();
+    }
 
-        if (e.icon != null) {
-            ImageView iv = new ImageView(c);
-            iv.setImageDrawable(copy(e.icon));
-            iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            int s = Math.round(h * 0.46f);
-            LayoutParams lp = new LayoutParams(s, s, Gravity.CENTER_HORIZONTAL);
-            lp.topMargin = Math.round(h * 0.14f);
-            f.addView(iv, lp);
+    /** The jiggle that says "I'm being moved". */
+    void setWobble(boolean on) {
+        if (wobble != null) { wobble.cancel(); wobble = null; }
+        if (on) {
+            wobble = ValueAnimator.ofFloat(-1.4f, 1.4f);
+            wobble.setDuration(150);
+            wobble.setRepeatCount(ValueAnimator.INFINITE);
+            wobble.setRepeatMode(ValueAnimator.REVERSE);
+            wobble.setInterpolator(new LinearInterpolator());
+            wobble.addUpdateListener(a -> lift.setRotation((float) a.getAnimatedValue()));
+            wobble.start();
         } else {
-            TextView letter = text(c, e.label.isEmpty() ? "?" : e.label.substring(0, 1).toUpperCase(),
-                    30 * textScale, 0xFFFFFFFF, "sans-serif-light");
-            LayoutParams lp = new LayoutParams(-1, -1);
-            lp.bottomMargin = Math.round(h * 0.16f);
-            f.addView(letter, lp);
+            lift.animate().rotation(0).setDuration(120).start();
         }
-
-        TextView name = text(c, e.label, 11 * textScale, 0xCCFFFFFF, "sans-serif-medium");
-        name.setSingleLine();
-        name.setEllipsize(TextUtils.TruncateAt.END);
-        name.setPadding(Math.round(8 * d), 0, Math.round(8 * d), 0);
-        LayoutParams lp = new LayoutParams(-1, -2, Gravity.BOTTOM);
-        lp.bottomMargin = Math.round(h * 0.09f);
-        f.addView(name, lp);
-        return f;
     }
 
-    private static TextView text(Context c, String s, float sp, int color, String family) {
-        TextView t = new TextView(c);
-        t.setText(s);
-        t.setTextSize(sp);
-        t.setTextColor(color);
-        t.setGravity(Gravity.CENTER);
-        t.setTypeface(Typeface.create(family, Typeface.NORMAL));
-        t.setIncludeFontPadding(false);
-        return t;
+    /** Fades the tile back while something else has the stage. */
+    void setRecede(boolean r) {
+        animate().alpha(r ? 0.35f : 1f).setDuration(200).start();
     }
 
-    private static Drawable copy(Drawable d) {
-        Drawable.ConstantState cs = d.getConstantState();
-        return cs != null ? cs.newDrawable().mutate() : d;
-    }
-
-    private static int mix(int a, int b, float t) {
-        return Color.rgb(
-                Math.round(Color.red(a) * t + Color.red(b) * (1 - t)),
-                Math.round(Color.green(a) * t + Color.green(b) * (1 - t)),
-                Math.round(Color.blue(a) * t + Color.blue(b) * (1 - t)));
+    private final class ArtView extends View {
+        ArtView(Context c) { super(c); }
+        @Override protected void onDraw(Canvas c) { Art.draw(c, entry, getWidth(), getHeight()); }
     }
 }
