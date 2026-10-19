@@ -1,0 +1,82 @@
+<!doctype html><meta charset=utf-8><title>Bare v3 mockup</title>
+<style>
+:root{--on:#e3e3e8;--dim:#a9aab1;--surf:#26272b;--sel:#3c3d43;--ink:#121316}
+*{box-sizing:border-box}
+html,body{margin:0;background:#0e0f12;font-family:Roboto,"Google Sans","Helvetica Neue",Arial,sans-serif;color:#fff}
+#tv{width:960px;height:540px;position:relative;overflow:hidden;background:#0e0f12}
+#wash{position:absolute;inset:0;transition:background .45s}
+.bar{position:absolute;left:44px;right:48px;top:22px;height:44px;display:flex;align-items:center}
+.pill{height:44px;border-radius:22px;display:flex;align-items:center}
+.search{width:210px;background:var(--surf);padding:0 16px;color:var(--dim);font-weight:500;font-size:15px}
+.search span{flex:1;margin-left:12px}
+.tab{padding:0 20px;font-weight:500;font-size:15px;color:var(--dim)}
+.tab.sel{background:var(--sel);color:#fff}
+.tab.foc,.search.foc{background:#fff;color:var(--ink)}
+.ib{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center}
+.clock{font-weight:500;font-size:17px;color:var(--on);padding-left:14px}
+svg{display:block}
+#page{position:absolute;left:0;top:76px;width:960px;transition:transform .2s}
+.hero{position:relative;height:214px}
+.htext{position:absolute;left:48px;top:0;bottom:0;width:490px;display:flex;flex-direction:column;justify-content:center}
+.htitle{font-size:36px;font-weight:500;line-height:44px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hsub{font-size:15px;color:var(--dim);margin-top:8px}
+.hhint{font-size:13px;color:rgba(255,255,255,.47);margin-top:22px}
+.hart{position:absolute;right:48px;top:50%;margin-top:-92px;width:326px;height:183px}
+.rt{font-size:17px;font-weight:500;color:var(--on);padding:14px 0 10px 48px}
+.row{display:flex;padding-left:41px}
+.tile{position:relative;flex:none;width:198.3px;height:117.7px;transition:transform .14s}
+.tile.f{transform:scale(1.06)}
+.ring{position:absolute;inset:0;border-radius:16px;border:3px solid #fff;opacity:0}
+.tile.f .ring{opacity:1}
+.card{position:absolute;left:7px;top:7px;right:7px;bottom:7px;border-radius:12px;overflow:hidden;display:flex;flex-direction:column;align-items:center}
+.plate .ic{width:46%;aspect-ratio:1;margin-top:14%;border-radius:22%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:28px}
+.plate .nm{position:absolute;left:8px;right:8px;bottom:9%;text-align:center;font-size:11px;font-weight:500;color:rgba(255,255,255,.8);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.add{border:2px dashed rgba(255,255,255,.33);background:rgba(255,255,255,.08);justify-content:center;font-size:38px;font-weight:300;color:var(--on)}
+.grid{padding-left:41px;padding-top:14px}.grid .tile{width:187.4px;height:106.7px}
+.grid .row{padding-left:0}
+.big .ic{font-size:44px}.big .nm{font-size:19px}
+.bn{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:800}
+.dlg{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:300px;background:#2b2b2b;border-radius:4px;box-shadow:0 8px 40px #000}
+.dlg h3{margin:0;padding:20px 24px 12px;font-size:20px;font-weight:400}.dlg div{padding:14px 24px;font-size:16px}.dlg .s{background:rgba(255,255,255,.18)}
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.55)}
+</style>
+<div id=tv><div id=wash></div>
+<div class=bar id=bar></div><div id=page></div></div>
+<script>
+const ico={
+search:'<circle cx="10.2" cy="10.2" r="6.2" fill="none" stroke="C" stroke-width="2"/><path d="M14.8 14.8L20 20" stroke="C" stroke-width="2" stroke-linecap="round"/>',
+mic:'<rect x="9" y="2.5" width="6" height="11.5" rx="3" fill="C"/><path d="M5.8 11a6.2 6.2 0 0 0 12.4 0M12 17.2v4M8.8 21.2h6.4" fill="none" stroke="C" stroke-width="2" stroke-linecap="round"/>',
+input:'<path d="M14.5 4H20v16h-5.5M3.5 12H15M11 8l4 4-4 4" fill="none" stroke="C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+wifi:'<g fill="none" stroke="C" stroke-width="2" stroke-linecap="round"><path d="M8.5 15.5a5 5 0 0 1 7 0"/><path d="M5.6 12.5a9 9 0 0 1 12.8 0"/><path d="M2.8 9.6a13 13 0 0 1 18.4 0"/></g><circle cx="12" cy="19" r="1.7" fill="C"/>',
+gear:'<g fill="C" fill-rule="evenodd"><path d="M12 4.9a7.1 7.1 0 1 0 0 14.2 7.1 7.1 0 0 0 0-14.2zM12 8.9a3.1 3.1 0 1 1 0 6.2 3.1 3.1 0 0 1 0-6.2z"/>'+[0,45,90,135,180,225,270,315].map(a=>`<rect x="10.2" y="2.4" width="3.6" height="5" rx="1" transform="rotate(${a} 12 12)"/>`).join('')+'</g>'};
+const I=(n,c,s)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24">${ico[n].replace(/C/g,c)}</svg>`;
+const apps={
+Netflix:{b:'<div class=bn style="background:#141414;color:#e50914;font-size:25px;letter-spacing:1px">NETFLIX</div>',g:'#c4151c'},
+YouTube:{b:'<div class=bn style="background:#212121;color:#fff;font-size:21px"><span style="background:#f00;border-radius:6px;padding:2px 8px;margin-right:6px;font-size:14px">▶</span>YouTube</div>',g:'#d93025'},
+"Prime Video":{b:'<div class=bn style="background:linear-gradient(135deg,#0a2a52,#00a8e1);color:#fff;font-size:21px">prime video</div>',g:'#1a98ff'},
+"Disney+":{c:'#2a52e8',l:'D',g:'#3b63e0'},Files:{c:'#f5b400',l:'F',g:'#d9a21b'},Jellyfin:{c:'#8b6cff',l:'J',g:'#7f63e6'},Kodi:{c:'#1f8fd1',l:'K',g:'#2b93d6'},Plex:{c:'#e5a00d',l:'P',g:'#d9a21b'},SmartTube:{c:'#e0392f',l:'S',g:'#d94a40'},VLC:{c:'#ff8800',l:'V',g:'#f08a12'},"Play Store":{c:'#34a853',l:'▶',g:'#3fae5f'},"Add":{add:1,g:'#3a4b73'}};
+const mix=(h,b,t)=>{const p=s=>[1,3,5].map(i=>parseInt(s.slice(i,i+2),16));const a=p(h),c=p(b);return'#'+a.map((v,i)=>Math.round(v*t+c[i]*(1-t)).toString(16).padStart(2,'0')).join('')};
+function card(n,big){const a=apps[n];
+ if(a.add)return`<div class="card add">+</div>`;
+ if(a.b)return`<div class="card">${a.b}</div>`;
+ return`<div class="card plate ${big?'big':''}" style="background:linear-gradient(135deg,${mix(a.g,'#26272b',.34)},${mix(a.g,'#17181b',.16)})"><div class=ic style="background:${a.c};color:#fff">${a.l}</div><div class=nm>${n}</div></div>`}
+const tile=(n,f)=>`<div class="tile ${f?'f':''}"><div class=ring></div>${card(n)}</div>`;
+const q=new URLSearchParams(location.search),pg=q.get('p')||'home',sel=q.get('sel')||'Netflix',y=+(q.get('y')||0);
+const fav=['Netflix','YouTube','Prime Video','Add'],home=['Disney+','Files','Jellyfin','Kodi','Plex','SmartTube','VLC','Play Store'];
+const all=[...home,'Add'];
+const sub={Netflix:'Version 8.1.2  ·  Favorite',YouTube:'Version 4.30.5  ·  Favorite','Prime Video':'Version 5.2.0  ·  Favorite',Add:'An app, a link, or something you hid'};
+document.getElementById('wash').style.background=`radial-gradient(circle at 78% 20%, ${apps[sel].g}66 0%, ${apps[sel].g}24 55%, transparent 100%)`;
+const tabs=[['Home','home'],['Apps','apps']].map(t=>`<div class="pill tab ${pg==t[1]?'sel':''} ${q.get('tab')==t[1]?'foc':''}">${t[0]}</div>`).join('');
+bar.innerHTML=`<div class="pill search ${q.get('tab')=='search'?'foc':''}">${I('search',q.get('tab')=='search'?'#121316':'#e3e3e8',20)}<span>Search</span>${I('mic',q.get('tab')=='search'?'#121316':'#e3e3e8',20)}</div><div style="width:18px"></div>${tabs}<div style="flex:1"></div><div class=ib>${I('input','#e3e3e8',24)}</div><div class=ib>${I('wifi','#e3e3e8',24)}</div><div class=ib>${I('gear','#e3e3e8',24)}</div><div class=clock>8:42</div>`;
+let h='';
+if(pg=='home'){
+ h=`<div class=hero><div class=htext><div class=htitle>${sel=='Add'?'Add to home':sel}</div><div class=hsub>${sub[sel]||'Version 3.4.1'}</div><div class=hhint>Press and hold OK for options</div></div><div class=hart>${card(sel,1).replace('class="card','style="position:absolute;inset:0;border-radius:16px" class="card')}</div></div>
+ <div class=rt>Favorites</div><div class=row>${fav.map(n=>tile(n,n==sel)).join('')}</div>
+ <div class=rt>Your apps</div><div class=row>${home.map(n=>tile(n,n==sel)).join('')}</div>`;
+}else{
+ let rows='';for(let i=0;i<all.length;i+=5)rows+=`<div class=row>${all.slice(i,i+5).map(n=>tile(n,n==sel)).join('')}</div>`;
+ h=`<div class=grid>${rows}</div>`;
+}
+page.innerHTML=h;page.style.transform=`translateY(${-y}px)`;
+if(q.get('menu'))tv.insertAdjacentHTML('beforeend',`<div class=scrim></div><div class=dlg><h3>Add to home</h3><div class=s>Custom shortcut…</div><div>Show hidden apps (2)…</div></div>`);
+</script>
