@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# A stand-in for adb that keeps a pretend TV in $FAKE (a directory), so debloat.sh
+# can be exercised without a device. Files in $FAKE:
+#   devices    lines "<serial> <state>" for "adb devices"
+#   props      lines "<name>=<value>" for getprop
+#   pkgs       one package per line (installed for user 0)
+#   disabled   disabled packages     uninstalled  removed for user 0
+#   home       component HOME resolves to       refuse  packages pm won't disable
+#   bare_crash present: Bare dies right after starting
+set -u
+F=${FAKE:?}
+touch "$F/disabled" "$F/uninstalled" "$F/refuse"
+[ "${1:-}" = -s ] && shift 2
+
+has() { grep -qxF "$2" "$F/$1"; }
+add() { has "$1" "$2" || echo "$2" >>"$F/$1"; }
+del() { grep -vxF "$2" "$F/$1" >"$F/$1.tmp"; mv "$F/$1.tmp" "$F/$1"; }
+
+case ${1:-} in
+    devices) echo "List of devices attached"; awk '{ print $1 "\t" $2 }' "$F/devices"; echo; exit 0 ;;
+    get-state) if [ -e "$F/drop" ]; then echo "error: device offline" >&2; exit 1; fi; echo device; exit 0 ;;
+    shell) shift ;;
+    *) echo "fake-adb: unsupported $*" >&2; exit 1 ;;
+esac
+
+case "$*" in
+    "echo ok") echo ok ;;
+    getprop\ *) sed -n "s/^$2=//p" "$F/props" ;;
+    "wm size") echo "Physical size: 1920x1080" ;;
+    "wm density") echo "Physical density: 320" ;;
+    "settings get secure default_input_method") echo "com.google.android.leanback.ime/.LeanbackImeService" ;;
+    "cmd package resolve-activity"*) echo "priority=0 preferredOrder=0 match=0x108000"; cat "$F/home" ;;
+    "cmd package query-activities"*) echo "com.google.android.tvlauncher/.MainActivity"; echo "dev.bare.launcher/.MainActivity" ;;
+    "cmd package set-home-activity"*) echo "${@: -1}" >"$F/home"; echo Success ;;
+    "pm list packages") sed 's/^/package:/' "$F/pkgs" ;;
+    "pm list packages -d") sed 's/^/package:/' "$F/disabled" ;;
+    "pm list packages -u") cat "$F/pkgs" "$F/uninstalled" | sed 's/^/package:/' ;;
+    "pm path android") echo "package:/system/framework/framework-res.apk" ;;
+    "pm disable-user --user 0 "*)
+        p=${@: -1}
+        if has refuse "$p"; then echo "Error: java.lang.IllegalArgumentException: Cannot disable system packages."; exit 1; fi
+        add disabled "$p"; echo "Package $p new state: disabled-user" ;;
+    "pm uninstall -k --user 0 "*) p=${@: -1}; del pkgs "$p"; del disabled "$p"; add uninstalled "$p"; echo Success ;;
+    "pm enable --user 0 "*) p=${@: -1}; del disabled "$p"; echo "Package $p new state: enabled" ;;
+    "cmd package install-existing --user 0 "*) p=${@: -1}; del uninstalled "$p"; add pkgs "$p"; echo "Package $p installed for user: 0" ;;
+    "am start -W"*) echo "Starting: Intent { act=android.intent.action.MAIN cat=[android.intent.category.HOME] }"; echo "Status: ok" ;;
+    "pidof dev.bare.launcher") [ -e "$F/bare_crash" ] || echo 4242 ;;
+    "dumpsys activity activities") echo "  mResumedActivity: ActivityRecord{1 u0 $(cat "$F/home") t9}" ;;
+    *) echo "fake-adb: unsupported shell $*" >&2; exit 1 ;;
+esac

@@ -137,7 +137,9 @@ Run on an emulator (Android TV, API 28) first; the device only after the owner a
 - A10 Rotate/density/resolution sweep: 1366x768 and 1920x1080 at the TV's real densities; no clipping of the top bar, hero, or focus ring.
 - A11 Disabling the TV input app or the assistant leaves Inputs and Search failing gracefully.
 
-## 8. Debloat requirements (separate deliverable, not yet written)
+## 8. Debloat requirements
+
+Written as `debloat/debloat.sh`, with usage and recovery steps in `debloat/README.md`. It has been run only against the simulated TV in `debloat/test/` (`bash debloat/test/run.sh`), never against the real unit. Running it against the TV still needs the owner's say-so.
 
 A dry-run-first shell script. It must not run anything against a device until the owner says so.
 

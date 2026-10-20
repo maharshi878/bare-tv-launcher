@@ -1,0 +1,21 @@
+// Screenshot harness only. Runs the real launcher code on the JVM with Robolectric's
+// native graphics and writes PNGs to preview/out. Not part of the shipped build.
+plugins { id 'com.android.library' version '8.10.1' }
+
+android {
+    namespace 'dev.bare.preview'
+    compileSdk 36
+    defaultConfig { minSdk 21 }
+    sourceSets.main.java.srcDirs = ['../src']
+    compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
+    testOptions.unitTests {
+        includeAndroidResources = true
+        all { it.systemProperty 'robolectric.graphicsMode', 'NATIVE'; it.systemProperty 'robolectric.pixelCopyRenderMode', 'hardware'; it.testLogging.showStandardStreams = true; it.systemProperty 'bare.out', "$projectDir/out"; it.maxHeapSize = '3g' }
+    }
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.16'
+    testImplementation 'androidx.test:monitor:1.8.0'
+}
