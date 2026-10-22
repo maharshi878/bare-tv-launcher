@@ -3,3 +3,9 @@ build/
 *.idsig
 *.keystore
 debloat/state/
+assets/
+
+# Wallpaper photos are fetched by wallpapers/fetch.sh, not committed.
+wallpapers/*.jpg
+wallpapers/review.html
+wallpapers/index.txt

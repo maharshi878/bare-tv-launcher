@@ -41,6 +41,7 @@ public class Shots {
     @Before public void reset() {
         PreviewActivity.empty = false;
         PreviewActivity.offline = false;
+        Wallpaper.sync = true;
         OUT.mkdirs();
         prefs().edit().clear().putInt("launches", 9).commit();
     }
@@ -136,6 +137,35 @@ public class Shots {
         Activity a = launch();
         press(a, KeyEvent.KEYCODE_DPAD_RIGHT);
         shot(a, "12-1366x768");
+    }
+
+    /** The owner's TV: 1280x720 at 213 dpi (wm size / wm density, read 2026-10-20). */
+    @Test @Config(qualifiers = "w960dp-h540dp-land-tvdpi")
+    public void hd720() throws Exception {
+        prefs().edit().putString("order", ORDER).commit();
+        Activity a = launch();
+        press(a, KeyEvent.KEYCODE_DPAD_RIGHT);
+        shot(a, "15-1280x720-home");
+        press(a, KeyEvent.KEYCODE_DPAD_DOWN);
+        shot(a, "16-1280x720-grid");
+        press(a, KeyEvent.KEYCODE_DPAD_UP);
+        press(a, KeyEvent.KEYCODE_DPAD_UP);
+        shot(a, "17-1280x720-calm");
+        press(a, KeyEvent.KEYCODE_DPAD_DOWN);   // wakes; does nothing else
+        shot(a, "18-1280x720-awake");
+        press(a, KeyEvent.KEYCODE_MENU);
+        for (int i = 0; i < 6; i++) press(a, KeyEvent.KEYCODE_DPAD_DOWN);
+        press(a, KeyEvent.KEYCODE_DPAD_CENTER);   // "Bare settings…"
+        shot(a, "19-1280x720-settings");
+    }
+
+    @Test @Config(qualifiers = "w960dp-h540dp-land-tvdpi")
+    public void idleTucksAway() throws Exception {
+        prefs().edit().putString("order", ORDER).commit();
+        Activity a = launch();
+        idle(61_000);
+        shot(a, "20-1280x720-idle");
+        assertTrue(a.getWindow().getDecorView().findFocus() instanceof Tile);
     }
 
     @Test public void emptyOffline() throws Exception {

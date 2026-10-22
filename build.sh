@@ -9,7 +9,28 @@ JAR="$(ls -d "$SDK"/platforms/android-* | sort -V | tail -1)/android.jar"
 OUT=build
 rm -rf "$OUT"; mkdir -p "$OUT/classes"
 
-"$BT/aapt2" link --manifest AndroidManifest.xml -I "$JAR" \
+# SF Pro Display, copied from this machine's installed fonts. Apple's licence doesn't allow
+# redistributing it, so assets/fonts is gitignored; without it Bare uses the system font.
+FONTS="${BARE_FONTS:-$HOME/.local/share/fonts/s}"
+mkdir -p assets/fonts
+for w in regular:REGULAR medium:MEDIUM bold:BOLD; do
+    src="$FONTS/SFPRODISPLAY${w#*:}.otf"
+    if [ -f "$src" ]; then cp "$src" "assets/fonts/${w%%:*}.otf"; else echo "note: $src not found, using the system font" >&2; fi
+done
+rm -rf assets/shelf
+
+# Wallpapers: photos listed in wallpapers/index.txt, fetched by wallpapers/fetch.sh (not in the
+# repo). Without them Bare draws a dusk gradient.
+rm -rf assets/wallpapers
+if [ -f wallpapers/index.txt ]; then
+    mkdir -p assets/wallpapers
+    cp wallpapers/index.txt assets/wallpapers/
+    awk -F'|' '!/^[[:space:]]*(#|$)/ { gsub(/^[ \t]+|[ \t]+$/, "", $1); print $1 }' wallpapers/index.txt |
+        while read -r f; do cp "wallpapers/$f" assets/wallpapers/; done
+fi
+
+"$BT/aapt2" compile --dir res -o "$OUT/res.zip"
+"$BT/aapt2" link --manifest AndroidManifest.xml -I "$JAR" -A assets "$OUT/res.zip" \
     --min-sdk-version 21 --target-sdk-version 28 -o "$OUT/base.apk"
 
 javac --release 8 -Xlint:-options -cp "$JAR" -d "$OUT/classes" src/dev/bare/launcher/*.java

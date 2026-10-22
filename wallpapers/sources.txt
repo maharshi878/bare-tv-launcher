@@ -1,0 +1,21 @@
+# Unsplash photo id | caption shown when the apps are tucked away | photographer
+# Picked 2026-10-22 from 25 candidates. Credits are from Unsplash's search listings.
+1550188225-af2e1c2529b2   | Still ocean                    | Fernando Jorge
+1495312040802-a929cd14a6ab | Green mountain                 | Billy Williams
+1784231882494-5450ad619de9 | Misty wildflower field         | Kristaps Ungurs
+1784816482090-dc500c541587 | Sunset over a quiet lake       | Rohit Dey
+1615134732800-ca7ef7a3388c | Lakeside meadow                | Valery Tenevoy
+1486707471592-8e7eb7e36f78 | Forest in fog                  | Inggrid Koe
+1552394459-917cbbffbc84   | Layered ridges                 | Fabrizio Conti
+1491824989090-cc2d0b57eb0d | Mountain silhouettes           | Ricardo Gomez Angel
+1504252060324-1c76e2e09939 | Mountain wrapped in fog        | Vincent Guth
+1600438831035-48f5f196d3bf | Ladakh, India                  | Darshan Chudasama
+1773575133321-92249861395c | Ladakh, India                  | Paddma Sambhav
+1643368214091-6af1a029aee0 | Ladakh, India                  | Anuj Bansal
+1555979864-7a8f9b4fddf8   | Coastline from above           | Kiril Dobrev
+1489914099268-1dad649f76bf | Shoreline from above           | Jakob Owens
+1525951398455-075a6b58b5d8 | Ridges at golden hour          | Wes Hicks
+1617291939353-cd47995c6433 | Dusk over the ridge            | Hikarinoshita Hikari
+1689890076926-afb4add0bc86 | Moonrise over the mountains    | Dulcey Lima
+1753185718032-4ea815f76c86 | Dawn over the ridges           | Joel Ambass
+1717964134799-a98f497172a5 | Forest stream                  | Daniel Alexandre Páscoa

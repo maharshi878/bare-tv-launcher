@@ -1,7 +1,6 @@
 package dev.bare.launcher;
 
 import android.content.Intent;
-import android.graphics.Bitmap;
 import android.graphics.drawable.Drawable;
 
 /** One tile on the home screen: an installed app, a custom shortcut, or one of the built-ins. */
@@ -18,7 +17,6 @@ final class Entry {
 
     // Derived from the artwork on first use, then kept with the entry.
     int glow;           // dominant color: tints icon plates
-    Bitmap ambient;     // tiny blurred render: the backdrop behind the grid
 
     boolean movable() { return kind != ADD; }
 }

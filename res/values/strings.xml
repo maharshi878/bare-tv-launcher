@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Bare</string>
+    <string name="home_key_label">Bare</string>
+    <string name="home_key_summary">Opens Bare when you press Home. Bare only watches the Home button and which home screen is showing; it reads nothing on screen and stores nothing.</string>
+</resources>

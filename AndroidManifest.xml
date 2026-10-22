@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="dev.bare.launcher"
-    android:versionCode="2"
-    android:versionName="2.0">
+    android:versionCode="3"
+    android:versionName="3.0">
 
     <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="28" />
 
@@ -12,7 +12,9 @@
     <uses-feature android:name="android.software.leanback" android:required="false" />
 
     <application
-        android:label="Bare"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:banner="@drawable/banner"
         android:allowBackup="false"
         android:theme="@android:style/Theme.Material.NoActionBar">
 
@@ -37,5 +39,18 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <!-- Optional: the owner turns it on in Settings > Accessibility to make Home open Bare
+             while the stock launcher stays installed. See HomeKey.java. -->
+        <service
+            android:name=".HomeKey"
+            android:label="@string/home_key_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/home_key" />
+        </service>
     </application>
 </manifest>

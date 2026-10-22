@@ -11,7 +11,8 @@ import android.view.View;
 /** Line icons drawn on a 24-unit grid. No assets; they stay crisp at any density. */
 final class Glyph extends View {
     static final int GEAR = 0, INPUT = 1, WIFI_OFF = 2, PLUS = 3, INFO = 4, HIDE = 5, SHOW = 6,
-            TRASH = 7, MOVE = 8, TOP = 9, CHECK = 10, GLOBE = 11;
+            TRASH = 7, MOVE = 8, TOP = 9, CHECK = 10, GLOBE = 11, SOUND = 12, PHOTO = 13, HOME = 14,
+            SLIDERS = 15, DOCK = 16, TV = 17;
 
     private static final Paint P = new Paint(Paint.ANTI_ALIAS_FLAG);
     private static final Path GEAR_PATH = gear();
@@ -128,6 +129,46 @@ final class Glyph extends View {
                 c.drawCircle(12f, 12f, 9f, P);
                 c.drawOval(new RectF(8f, 3f, 16f, 21f), P);
                 c.drawLine(3f, 12f, 21f, 12f, P);
+                break;
+            case SOUND: {
+                Path b = new Path();
+                b.moveTo(3.5f, 9.5f); b.lineTo(7.5f, 9.5f); b.lineTo(12f, 5f); b.lineTo(12f, 19f);
+                b.lineTo(7.5f, 14.5f); b.lineTo(3.5f, 14.5f); b.close();
+                c.drawPath(b, P);
+                c.drawArc(new RectF(10f, 8.5f, 17f, 15.5f), -50f, 100f, false, P);
+                c.drawArc(new RectF(9f, 5f, 21f, 19f), -50f, 100f, false, P);
+                break;
+            }
+            case PHOTO: {
+                c.drawRoundRect(new RectF(3f, 5f, 21f, 19f), 2.5f, 2.5f, P);
+                Path m = new Path();
+                m.moveTo(3.5f, 17f); m.lineTo(9f, 11.5f); m.lineTo(13f, 15.5f); m.lineTo(15.5f, 13f); m.lineTo(20.5f, 18f);
+                c.drawPath(m, P);
+                P.setStyle(Paint.Style.FILL);
+                c.drawCircle(16f, 9.5f, 1.6f, P);
+                break;
+            }
+            case HOME: {
+                Path h = new Path();
+                h.moveTo(3.5f, 11.5f); h.lineTo(12f, 4f); h.lineTo(20.5f, 11.5f);
+                h.moveTo(6f, 9.5f); h.lineTo(6f, 20f); h.lineTo(18f, 20f); h.lineTo(18f, 9.5f);
+                c.drawPath(h, P);
+                break;
+            }
+            case SLIDERS:
+                for (float[] k : new float[][] { { 7f, 9f }, { 12f, 15f }, { 17f, 8f } }) {
+                    c.drawLine(4f, k[0], k[1] - 2.4f, k[0], P);
+                    c.drawLine(k[1] + 2.4f, k[0], 20f, k[0], P);
+                    c.drawCircle(k[1], k[0], 2.2f, P);
+                }
+                break;
+            case DOCK:
+                c.drawRoundRect(new RectF(2.5f, 4.5f, 21.5f, 18.5f), 2.5f, 2.5f, P);
+                c.drawRoundRect(new RectF(6.5f, 13.5f, 17.5f, 15.5f), 1f, 1f, P);
+                break;
+            case TV:
+                c.drawRoundRect(new RectF(3f, 5f, 21f, 17f), 2.5f, 2.5f, P);
+                c.drawLine(8.5f, 20.5f, 15.5f, 20.5f, P);
                 break;
         }
         c.restore();

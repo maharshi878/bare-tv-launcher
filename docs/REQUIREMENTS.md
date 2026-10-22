@@ -6,7 +6,6 @@ Handoff document. Technical requirements only. Visual and interaction taste is d
 
 - **No live changes to the TV.** Do not run `adb connect`, `adb install`, `pm disable-user`, `pm uninstall`, or anything else against the device unless the owner explicitly authorizes it in chat, per action. Building and editing local files is fine.
 - Report outcomes faithfully. The code has **never run on a device or emulator**; everything below marked "unverified" must be treated as such.
-- The mockups in `mock/*.html` are browser approximations, not captures of the app. They are not a source of truth for behavior.
 
 ## 1. Target device
 
@@ -37,6 +36,7 @@ Before any device work, a read-only identity check is required: `ro.product.mode
 - **R2** Back key is a no-op on the home screen.
 - **R3** Pressing Home while already home returns to the Home page, scrolls to top, and focuses the first tile.
 - **R4** The app must not list itself.
+- **R5** Home button without disabling the stock launcher: the firmware launcher's HOME filter has priority 2 (checked 2026-10-22), which no installed app can match, so `set-home-activity` is ignored. The optional accessibility service `HomeKey` (owner turns it on in Settings › Accessibility) consumes Home and opens Bare, and opens Bare over any stock HOME activity that comes to the front (boot, apps exiting to it). It reads no window content. A loop guard stops redirecting after 3 redirects in 20 s; "Open the Google TV home screen" in Bare settings suppresses redirects until the next Home press. `rollback.sh` restores `accessibility_enabled` and `enabled_accessibility_services`.
 
 ### 3.2 App discovery
 - **R5** Enumerate activities for `CATEGORY_LEANBACK_LAUNCHER` first, then `CATEGORY_LAUNCHER`, de-duplicated per package, Leanback wins.
@@ -92,6 +92,10 @@ Before any device work, a read-only identity check is required: `ro.product.mode
 | `hidden` | string set | package names |
 | `pinned` | string (JSON array) | entry keys; app key = package, custom key = `c:<id>` |
 | `custom` | string (JSON array) | `{id, label, target}` objects |
+| `order` | string (JSON array) | entry keys as arranged |
+| `volume` | int | sounds: 0 off, 1 soft, 2 loud (seeded once from the old `sounds` boolean) |
+| `autohide` | boolean | tuck the apps away after a minute idle (default on) |
+| `rotate`, `photo`, `photoAt` | int, int, long | picture rotation period index, current picture, when it went up |
 
 No other storage. Clearing app data resets everything.
 
@@ -99,14 +103,35 @@ No other storage. Clearing app data resets everything.
 
 | File | Role |
 |---|---|
-| `AndroidManifest.xml` | permissions, HOME/LEANBACK intent filters, `ADD` action |
-| `src/dev/bare/launcher/MainActivity.java` | lifecycle, UI assembly, discovery, prefs, menus, custom targets |
-| `.../Tile.java` | focusable card, focus ring and scale, card artwork (banner / icon plate / add) |
+| `AndroidManifest.xml` | permissions, HOME/LEANBACK intent filters, `ADD` action, icon/banner, `HomeKey` service |
+| `res/` | strings, `xml/home_key.xml` (service config), icon and banner PNGs rendered from `art/*.svg` |
+| `src/dev/bare/launcher/MainActivity.java` | lifecycle, layout (clock, dock, grid, tucked-away state), discovery, prefs, menus, Bare settings, custom targets |
+| `.../Wallpaper.java` | full-screen photo + frosted copy for the grid, crossfading; dusk gradient when no photos |
+| `.../HomeKey.java` | optional accessibility service that makes Home open Bare (R5) |
+| `.../Art.java` | card artwork; colour sampling |
+| `.../Tile.java` | focusable card: lift, sheen, glint, name underneath (hidden while tucked away) |
+| `.../Sheet.java` | floating menus, pickers and the shortcut form |
+| `.../Glyph.java` | line icons drawn in code |
+| `.../Fonts.java` | SF Pro Display Regular / Medium / Bold from `assets/fonts`, system font fallback |
+| `.../Glass.java` | the shared glass material: tray, status pill, menus, messages |
+| `.../Sounds.java` | tick / tock / knock / pop / air, synthesised into the cache on first run; media stream (follows TV volume); Loud / Soft / Off in Bare settings |
+| `wallpapers/` | `sources.txt` (Unsplash ids, place, photographer) and `fetch.sh`; the JPEGs and `index.txt` are gitignored |
 | `.../Entry.java` | data holder |
-| `.../GlowView.java` | background drawing and color transition |
-| `.../IconView.java` | five hand-drawn icons (search, mic, gear, input, wifi) |
 | `build.sh` | aapt2 → javac → d8 → aapt add → zipalign → apksigner |
-| `mock/` | throwaway HTML previews |
+| `preview/` | Robolectric screenshot harness (Gradle, test-only; not part of the APK) |
+
+Screenshots: `cd preview && ANDROID_HOME=~/Android/Sdk JAVA_HOME=/usr/lib/jvm/java-21-openjdk gradle testDebugUnitTest`, output in `preview/out/`. Robolectric fast-forwards the clock through running animations, so a long-running animation makes timed UI (toasts) vanish from the shots.
+
+### Home layout (tvOS reference)
+- A full-screen photograph (Unsplash, rotating every 15 min / hourly / daily) with a large clock and date top-left.
+- Six columns of 5:3 cards. The top row sits in a glass dock in the lower third, names under every card (dim at rest, bright when focused); the second row peeks in below it.
+- Up from the dock, or a minute idle, tucks the apps away: the dock shrinks to its cards and settles at the bottom edge, names and focus fade, the scrim lifts, and the picture's place and photographer appear under the date. Any remote key brings the apps back and does nothing else.
+- Moving down into the grid fades the clock and frosts the picture (a pre-blurred copy crossfades in).
+- Status pill, top right, only when offline.
+- Apple-TV-style recommendations were considered and rejected: see the TvProvider note below.
+- Nothing animates once focus settles (no ambient motion): the target TV's SoC is weak.
+- Type: SF Pro Display (Bold titles, Medium labels and clock with tabular digits, Regular body). `build.sh` copies it from `$BARE_FONTS` (default `~/.local/share/fonts/s`) into `assets/fonts/`, which is **gitignored**: Apple's licence doesn't permit redistributing SF Pro, so it must never be committed. Without the files the APK builds and uses the system font.
+- App recommendation rows (TvProvider channels, e.g. Netflix) are **not readable**: `ACCESS_ALL_EPG_DATA` is `signature|privileged` on the target (checked 2026-10-20). Only firmware launchers get it.
 
 ## 6. Known gaps and unverified assumptions
 
