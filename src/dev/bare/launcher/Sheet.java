@@ -13,6 +13,7 @@ import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 /**
@@ -25,6 +26,8 @@ final class Sheet extends FrameLayout {
     interface Choice { void chose(int index); }
 
     private final LinearLayout panel;
+    /** Where rows go: the panel itself, or the scrolling list opened by {@link #beginList}. */
+    private LinearLayout target;
     private final float d;
     private Listener listener;
     private boolean open;
@@ -53,6 +56,7 @@ final class Sheet extends FrameLayout {
 
     Sheet begin(String title, int widthDp) {
         panel.removeAllViews();
+        target = panel;
         firstFocus = null;
         panel.setLayoutParams(new LayoutParams(dp(widthDp), -2));
         if (title != null) {
@@ -67,7 +71,7 @@ final class Sheet extends FrameLayout {
 
     /** A menu row. Selecting it closes the sheet, then runs {@code act}. */
     View row(int glyph, String label, final Runnable act) {
-        final View r = rowView(glyph, label, false, null);
+        final View r = rowView(glyph, label, false, null, null);
         r.setOnClickListener(v -> close(act));
         return r;
     }
@@ -75,7 +79,7 @@ final class Sheet extends FrameLayout {
     /** A setting: its current value on the right; OK steps to the next value without closing. */
     View option(int glyph, String label, final String[] values, int index, final Choice ch) {
         final TextView v = text(values[index], 15, 0x99FFFFFF, "sans-serif-medium");
-        final View r = rowView(glyph, label, false, v);
+        final View r = rowView(glyph, label, false, v, null);
         final int[] at = { index };
         r.setOnClickListener(x -> {
             at[0] = (at[0] + 1) % values.length;
@@ -87,8 +91,13 @@ final class Sheet extends FrameLayout {
 
     /** A row with a check mark that toggles in place. */
     View check(String label, boolean initial, final boolean[] state, final int index) {
+        return check(label, initial, state, index, null);
+    }
+
+    /** As {@link #check}, led by a small card of the app's own artwork, the same as its tile. */
+    View check(String label, boolean initial, final boolean[] state, final int index, Entry art) {
         state[index] = initial;
-        final View r = rowView(Glyph.CHECK, label, true, null);
+        final View r = rowView(Glyph.CHECK, label, true, null, art == null ? null : thumb(art));
         final Glyph g = (Glyph) r.getTag();
         g.setVisibility(initial ? VISIBLE : INVISIBLE);
         r.setOnClickListener(v -> {
@@ -97,6 +106,28 @@ final class Sheet extends FrameLayout {
         });
         return r;
     }
+
+    /**
+     * Rows added until {@link #endList} go into a list that scrolls once it is taller than
+     * {@code maxHeightPx}. Focus moving onto a row out of view scrolls it in.
+     */
+    void beginList(int maxHeightPx) {
+        final LinearLayout inner = new LinearLayout(getContext());
+        inner.setOrientation(LinearLayout.VERTICAL);
+        ScrollView sv = new ScrollView(getContext()) {
+            @Override protected void onMeasure(int w, int h) {
+                super.onMeasure(w, MeasureSpec.makeMeasureSpec(maxHeightPx, MeasureSpec.AT_MOST));
+            }
+        };
+        sv.setVerticalScrollBarEnabled(true);
+        sv.setFillViewport(false);
+        sv.setClipToPadding(false);
+        sv.addView(inner, new LayoutParams(-1, -2));
+        panel.addView(sv, new LinearLayout.LayoutParams(-1, -2));
+        target = inner;
+    }
+
+    void endList() { target = panel; }
 
     void note(String s) {
         TextView t = text(s, 13, 0x8CFFFFFF, "sans-serif");
@@ -183,6 +214,8 @@ final class Sheet extends FrameLayout {
             int gap = dp(22);
             x = anchor.right + gap;
             if (x + pw > w - edgeX) { x = anchor.left - gap - pw; right = false; }
+            // Fits on neither side of the tile: centre it instead of running off the screen.
+            if (x < edgeX) { x = (w - pw) / 2; right = true; }
             y = Math.max(edgeY, Math.min(anchor.top - dp(10), h - edgeY - ph));
         } else {
             x = (w - pw) / 2;
@@ -245,7 +278,7 @@ final class Sheet extends FrameLayout {
 
     // ---------------------------------------------------------------- parts
 
-    private View rowView(int glyph, String label, boolean glyphRight, final TextView value) {
+    private View rowView(int glyph, String label, boolean glyphRight, final TextView value, View lead) {
         final LinearLayout r = new LinearLayout(getContext());
         r.setOrientation(LinearLayout.HORIZONTAL);
         r.setGravity(Gravity.CENTER_VERTICAL);
@@ -264,6 +297,11 @@ final class Sheet extends FrameLayout {
         t.setEllipsize(android.text.TextUtils.TruncateAt.END);
         LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(0, -2, 1f);
         LinearLayout.LayoutParams gl = new LinearLayout.LayoutParams(dp(22), dp(22));
+        if (lead != null) {
+            LinearLayout.LayoutParams ll = new LinearLayout.LayoutParams(dp(60), dp(36));
+            ll.rightMargin = dp(16);
+            r.addView(lead, ll);
+        }
         if (glyphRight) {
             r.addView(t, tl);
             gl.leftMargin = dp(14);
@@ -285,8 +323,23 @@ final class Sheet extends FrameLayout {
             g.setColor(f ? 0xFF111114 : 0xFFFFFFFF);
             if (value != null) value.setTextColor(f ? 0x99111114 : 0x99FFFFFF);
         });
-        panel.addView(r, new LinearLayout.LayoutParams(-1, dp(50)));
+        target.addView(r, new LinearLayout.LayoutParams(-1, dp(lead != null ? 56 : 50)));
         return r;
+    }
+
+    /** A 5:3 card of an app's artwork with rounded corners, drawn by the same code as the grid. */
+    private View thumb(final Entry e) {
+        View v = new View(getContext()) {
+            @Override protected void onDraw(android.graphics.Canvas c) { Art.draw(c, e, getWidth(), getHeight()); }
+        };
+        final float r = dp(6);
+        v.setOutlineProvider(new android.view.ViewOutlineProvider() {
+            @Override public void getOutline(View view, android.graphics.Outline o) {
+                o.setRoundRect(0, 0, view.getWidth(), view.getHeight(), r);
+            }
+        });
+        v.setClipToOutline(true);
+        return v;
     }
 
     private TextView text(String s, float sp, int color, String family) {
