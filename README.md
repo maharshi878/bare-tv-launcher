@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/home.jpg" alt="Bare home screen on Android TV: large clock over an ocean photo, apps in a glass dock with names" width="860">
+  <img src="docs/screenshots/tucked-away.jpg" alt="Bare home screen on Android TV: large clock over an ocean photo, apps in a glass dock with names" width="860">
 </p>
 
 ## Why
