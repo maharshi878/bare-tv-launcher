@@ -914,7 +914,7 @@ public class MainActivity extends Activity implements Tile.Host, Sheet.Listener 
                 Set<String> h = hidden();
                 h.add(e.key);
                 setHidden(h);
-                say(e.label + " hidden. Add › Hidden apps brings it back.");
+                say(e.label + " hidden. Add › Apps brings it back.");
                 forget(e.key);
             });
         }
@@ -937,11 +937,34 @@ public class MainActivity extends Activity implements Tile.Host, Sheet.Listener 
 
     private void showAddMenu(final Tile t) {
         final Set<String> hidden = hidden();
-        sheet.begin("Add", 320);
-        sheet.row(Glyph.GLOBE, "Shortcut to an app or link…", this::showAddForm);
-        if (!hidden.isEmpty()) sheet.row(Glyph.SHOW, "Hidden apps (" + hidden.size() + ")…", () -> showUnhide(t));
+        sheet.begin("Add", 360);
+        sheet.row(Glyph.SHOW, hidden.isEmpty() ? "Apps…" : "Apps (" + hidden.size() + " hidden)…", () -> showApps(t));
+        sheet.row(Glyph.GLOBE, "Website…", this::showWebForm);
+        sheet.row(Glyph.PLUS, "Advanced shortcut…", this::showAddForm);
         sheet.row(Glyph.SLIDERS, "Bare settings…", () -> showSettings(t));
         present(t);
+    }
+
+    /** A website tile: a name and an address, nothing to know about packages or intents. */
+    private void showWebForm() {
+        sheet.begin("Website", 440);
+        final EditText name = sheet.field("Name, like Jellyfin");
+        final EditText addr = sheet.field("Address, like youtube.com/tv");
+        sheet.buttons(new String[] { "Cancel", "Add" }, new Runnable[] { null, () -> {
+            String a = addr.getText().toString().trim();
+            if (a.isEmpty() || a.contains(" ") || !a.contains(".")) { say("Type an address, like youtube.com"); return; }
+            String url = a.contains("://") ? a : "https://" + a;
+            if (resolve(url) == null) { say("Nothing on this TV can open that address"); return; }
+            String n = name.getText().toString().trim();
+            if (n.isEmpty()) {
+                String host = Uri.parse(url).getHost();
+                n = host == null ? a : host.startsWith("www.") ? host.substring(4) : host;
+            }
+            sheet.close(null);
+            addCustom(n, url);
+            say("Added " + n);
+        } }, new boolean[] { true, false });
+        present(null);
     }
 
     /** Bare's own settings. Values change in place; the sheet stays open until Back. */
@@ -1015,7 +1038,7 @@ public class MainActivity extends Activity implements Tile.Host, Sheet.Listener 
     }
 
     private void showAddForm() {
-        sheet.begin("New shortcut", 440);
+        sheet.begin("Advanced shortcut", 440);
         final EditText name = sheet.field("Name");
         final EditText target = sheet.field("App, link, or package/.Activity");
         sheet.note("For example  org.jellyfin.androidtv,  youtube.com/tv,\nor  com.example.app/.MainActivity");
@@ -1029,30 +1052,45 @@ public class MainActivity extends Activity implements Tile.Host, Sheet.Listener 
         present(null);
     }
 
-    private void showUnhide(Tile t) {
-        final PackageManager pm = getPackageManager();
+    /**
+     * Every app on the TV, alphabetically, ticked if it is on the home screen. Tick to add,
+     * untick to hide; Done applies both. Uninstalled leftovers drop out of the hidden set here.
+     */
+    private void showApps(Tile t) {
         final List<String> keys = new ArrayList<>();
         final List<String> labels = new ArrayList<>();
+        final List<Entry> arts = new ArrayList<>();
+        List<Entry> all = discoverApps();
+        final Collator col = Collator.getInstance();
+        Collections.sort(all, (x, y) -> col.compare(x.label, y.label));
+        for (Entry e : all) { keys.add(e.key); labels.add(e.label); arts.add(e); }
+        if (!discoverInputs().isEmpty()) { keys.add(KEY_INPUTS); labels.add("Inputs"); arts.add(builtin(KEY_INPUTS, Entry.INPUTS, "Inputs")); }
+        keys.add(KEY_SETTINGS); labels.add("Settings"); arts.add(builtin(KEY_SETTINGS, Entry.SETTINGS, "Settings"));
+
         Set<String> h = hidden();
-        for (String k : h) {
-            if (k.equals(KEY_INPUTS)) { keys.add(k); labels.add("Inputs"); continue; }
-            if (k.equals(KEY_SETTINGS)) { keys.add(k); labels.add("Settings"); continue; }
-            try {
-                labels.add(String.valueOf(pm.getApplicationLabel(pm.getApplicationInfo(k, 0))));
-                keys.add(k);
-            } catch (PackageManager.NameNotFoundException ignored) { }
-        }
-        if (keys.size() != h.size()) { h.retainAll(keys); setHidden(h); }   // drop uninstalled packages
-        if (keys.isEmpty()) { say("Nothing is hidden"); return; }
-        final boolean[] show = new boolean[keys.size()];
-        sheet.begin("Choose what to show again", 360);
-        for (int i = 0; i < keys.size(); i++) sheet.check(labels.get(i), false, show, i);
-        sheet.buttons(new String[] { "Show" }, new Runnable[] { () -> {
+        if (h.retainAll(keys)) setHidden(h);   // forget hidden apps that were uninstalled
+        final boolean[] on = new boolean[keys.size()];
+        sheet.begin("Apps on your home screen", 440);
+        sheet.beginList(Math.round(screenH * 0.56f));
+        for (int i = 0; i < keys.size(); i++) sheet.check(labels.get(i), !h.contains(keys.get(i)), on, i, arts.get(i));
+        sheet.endList();
+        sheet.buttons(new String[] { "Cancel", "Done" }, new Runnable[] { null, () -> {
             Set<String> nh = hidden();
-            for (int i = 0; i < show.length; i++) if (show[i]) nh.remove(keys.get(i));
+            int added = 0, removed = 0;
+            for (int i = 0; i < on.length; i++) {
+                String k = keys.get(i);
+                if (on[i] && nh.remove(k)) added++;
+                else if (!on[i] && nh.add(k)) removed++;
+            }
             setHidden(nh);
+            if (focusKey != null && nh.contains(focusKey)) focusKey = null;
             reload();
-        } }, new boolean[] { true });
+            if (added + removed > 0) {
+                say((added > 0 ? added + (added == 1 ? " app added" : " apps added") : "")
+                        + (added > 0 && removed > 0 ? ", " : "")
+                        + (removed > 0 ? removed + " hidden" : ""));
+            }
+        } }, new boolean[] { true, true });
         present(t);
     }
 

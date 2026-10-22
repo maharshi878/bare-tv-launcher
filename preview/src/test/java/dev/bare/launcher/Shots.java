@@ -131,6 +131,19 @@ public class Shots {
         shot(a, "11-add-form");
     }
 
+    @Test public void appPicker() throws Exception {
+        prefs().edit().putString("order", ORDER).putStringSet("hidden", new java.util.HashSet<>(java.util.Arrays.asList("org.videolan.vlc", "com.spotify.tv.android"))).commit();
+        Activity a = launch();
+        for (int i = 0; i < 3; i++) press(a, KeyEvent.KEYCODE_DPAD_DOWN);
+        for (int i = 0; i < 5; i++) press(a, KeyEvent.KEYCODE_DPAD_RIGHT);
+        press(a, KeyEvent.KEYCODE_DPAD_CENTER);   // the Add tile
+        press(a, KeyEvent.KEYCODE_DPAD_CENTER);   // "Apps…"
+        shot(a, "21-apps");
+        for (int i = 0; i < 13; i++) press(a, KeyEvent.KEYCODE_DPAD_DOWN);
+        press(a, KeyEvent.KEYCODE_DPAD_CENTER);   // tick whatever is focused deep in the list
+        shot(a, "22-apps-scrolled");
+    }
+
     @Test @Config(qualifiers = "w1026dp-h577dp-land-tvdpi")
     public void hd768() throws Exception {
         prefs().edit().putString("order", ORDER).commit();

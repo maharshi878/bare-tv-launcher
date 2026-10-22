@@ -23,7 +23,7 @@ Stock Android TV and Google TV home screens are mostly ads: sponsored rows, "rec
 - **Wallpapers that change on their own** — high-resolution landscape photos (Unsplash), a new one every 15 minutes, hourly or daily.
 - **Tuck the apps away** — press Up (or leave the remote for a minute) and the dock slides to the bottom edge so the photo has the screen. Any key brings it back.
 - **Every app, one grid** — Down shows the rest of your apps over a frosted copy of the picture.
-- **Rearrange, hide, shortcut** — hold OK on any app to move it, hide it, open its info or uninstall it. Add shortcuts to websites or specific activities.
+- **Pick your apps from a list** — Add › Apps shows every app on the TV with its logo; tick what you want on the home screen. Hold OK on any app to move it, hide it, open its info or uninstall it, and add websites as tiles.
 - **Tactile sounds** — soft clicks as focus moves, synthesised on the device (Loud, Soft or Off).
 - **HDMI inputs** — one tile lists your TV's inputs.
 - **Makes the Home button open Bare** — even on TVs where the firmware launcher can't be replaced (see below).
@@ -31,8 +31,8 @@ Stock Android TV and Google TV home screens are mostly ads: sponsored rows, "rec
 - **Bonus: a reversible debloat script** for Xiaomi Mi TVs, with a dry run and a full rollback ([`debloat/`](debloat/README.md)).
 
 <p align="center">
-  <img src="docs/screenshots/tucked-away.jpg" alt="Apps tucked away: the photo fills the TV with a small dock at the bottom" width="420">
-  <img src="docs/screenshots/grid.jpg" alt="All apps grid over a frosted wallpaper" width="420">
+  <img src="docs/screenshots/tucked-away.jpg" alt="Captured on a real Mi TV: apps tucked away, a misty meadow photo fills the screen with a small dock at the bottom" width="420">
+  <img src="docs/screenshots/grid.jpg" alt="Captured on a real Mi TV: every app in a grid over a frosted copy of the photo" width="420">
   <img src="docs/screenshots/menu.jpg" alt="Hold OK on an app: move, app info, hide, uninstall" width="420">
   <img src="docs/screenshots/settings.jpg" alt="Bare settings: sounds, auto-hide, wallpaper rotation, Home button" width="420">
 </p>
