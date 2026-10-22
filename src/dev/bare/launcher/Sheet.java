@@ -2,7 +2,6 @@ package dev.bare.launcher;
 
 import android.content.Context;
 import android.graphics.Rect;
-import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.text.InputType;
 import android.view.FocusFinder;
@@ -23,6 +22,7 @@ import android.widget.TextView;
  */
 final class Sheet extends FrameLayout {
     interface Listener { void onSheetClosed(); }
+    interface Choice { void chose(int index); }
 
     private final LinearLayout panel;
     private final float d;
@@ -41,11 +41,7 @@ final class Sheet extends FrameLayout {
         panel.setOrientation(LinearLayout.VERTICAL);
         int p = dp(10);
         panel.setPadding(p, p, p, p);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(24));
-        bg.setColor(0xF5222226);
-        bg.setStroke(Math.max(1, dp(1) / 2 + 1), 0x1FFFFFFF);
-        panel.setBackground(bg);
+        panel.setBackground(Glass.solid(dp(24), Math.max(1, dp(1))));
         panel.setElevation(dp(24));
         addView(panel, new LayoutParams(-2, -2));
     }
@@ -71,15 +67,28 @@ final class Sheet extends FrameLayout {
 
     /** A menu row. Selecting it closes the sheet, then runs {@code act}. */
     View row(int glyph, String label, final Runnable act) {
-        final View r = rowView(glyph, label, false);
+        final View r = rowView(glyph, label, false, null);
         r.setOnClickListener(v -> close(act));
+        return r;
+    }
+
+    /** A setting: its current value on the right; OK steps to the next value without closing. */
+    View option(int glyph, String label, final String[] values, int index, final Choice ch) {
+        final TextView v = text(values[index], 15, 0x99FFFFFF, "sans-serif-medium");
+        final View r = rowView(glyph, label, false, v);
+        final int[] at = { index };
+        r.setOnClickListener(x -> {
+            at[0] = (at[0] + 1) % values.length;
+            v.setText(values[at[0]]);
+            ch.chose(at[0]);
+        });
         return r;
     }
 
     /** A row with a check mark that toggles in place. */
     View check(String label, boolean initial, final boolean[] state, final int index) {
         state[index] = initial;
-        final View r = rowView(Glyph.CHECK, label, true);
+        final View r = rowView(Glyph.CHECK, label, true, null);
         final Glyph g = (Glyph) r.getTag();
         g.setVisibility(initial ? VISIBLE : INVISIBLE);
         r.setOnClickListener(v -> {
@@ -236,7 +245,7 @@ final class Sheet extends FrameLayout {
 
     // ---------------------------------------------------------------- parts
 
-    private View rowView(int glyph, String label, boolean glyphRight) {
+    private View rowView(int glyph, String label, boolean glyphRight, final TextView value) {
         final LinearLayout r = new LinearLayout(getContext());
         r.setOrientation(LinearLayout.HORIZONTAL);
         r.setGravity(Gravity.CENTER_VERTICAL);
@@ -264,11 +273,17 @@ final class Sheet extends FrameLayout {
             r.addView(g, gl);
             r.addView(t, tl);
         }
+        if (value != null) {
+            LinearLayout.LayoutParams vl = new LinearLayout.LayoutParams(-2, -2);
+            vl.leftMargin = dp(12);
+            r.addView(value, vl);
+        }
         r.setTag(g);
         r.setOnFocusChangeListener((v, f) -> {
             bg.setColor(f ? 0xFFFFFFFF : 0x00FFFFFF);
             t.setTextColor(f ? 0xFF111114 : 0xFFFFFFFF);
             g.setColor(f ? 0xFF111114 : 0xFFFFFFFF);
+            if (value != null) value.setTextColor(f ? 0x99111114 : 0x99FFFFFF);
         });
         panel.addView(r, new LinearLayout.LayoutParams(-1, dp(50)));
         return r;
@@ -279,7 +294,7 @@ final class Sheet extends FrameLayout {
         t.setText(s);
         t.setTextSize(sp);
         t.setTextColor(color);
-        t.setTypeface(Typeface.create(family, Typeface.NORMAL));
+        t.setTypeface(Fonts.get(getContext(), family));
         t.setIncludeFontPadding(false);
         return t;
     }

@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">
+  <defs>
+    <clipPath id="sq"><rect width="192" height="192" rx="44"/></clipPath>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0E1432"/>
+      <stop offset="0.45" stop-color="#2B3366"/>
+      <stop offset="0.68" stop-color="#7A6390"/>
+      <stop offset="0.82" stop-color="#E29A7C"/>
+      <stop offset="1" stop-color="#2A1E2C"/>
+    </linearGradient>
+    <radialGradient id="sun" cx="0.66" cy="0.82" r="0.55">
+      <stop offset="0" stop-color="#FFD2A8" stop-opacity="0.75"/>
+      <stop offset="1" stop-color="#FFD2A8" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="hill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1B1428"/>
+      <stop offset="1" stop-color="#0A0A10"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.12"/>
+    </linearGradient>
+  </defs>
+  <g clip-path="url(#sq)">
+    <rect width="192" height="192" fill="url(#sky)"/>
+    <rect width="192" height="192" fill="url(#sun)"/>
+    <path d="M0 158 C40 146 70 157 100 152 C135 146 160 158 192 152 L192 192 L0 192 Z" fill="url(#hill)"/>
+    <g fill="none" stroke="#FFFFFF" stroke-width="15" stroke-linecap="round" transform="translate(4 -6)">
+      <path d="M64 34 V98"/>
+      <circle cx="92" cy="98" r="28"/>
+    </g>
+    <g transform="translate(46 150)">
+      <rect x="0" y="0" width="100" height="24" rx="8" fill="url(#glass)" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="1"/>
+      <rect x="7" y="6" width="23" height="12" rx="3" fill="#FFFFFF" fill-opacity="0.9"/>
+      <rect x="38.5" y="6" width="23" height="12" rx="3" fill="#FFFFFF" fill-opacity="0.55"/>
+      <rect x="70" y="6" width="23" height="12" rx="3" fill="#FFFFFF" fill-opacity="0.55"/>
+    </g>
+  </g>
+</svg>

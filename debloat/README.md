@@ -5,7 +5,7 @@
 - **Nothing is deleted.** Every change is `pm disable-user --user 0`, the same as pressing Disable in the TV's own app settings.
 - **Changes are logged.** `--restore` re-enables packages from a fixed list in the script, and a factory reset puts everything back as well.
 - **The default is a dry run.** Without `--apply` or `--restore`, the script only reads from the TV and prints a plan.
-- **Untested on a real TV.** It has only been run against a simulated TV (`test/run.sh`, 47 scenarios). The package names come from community lists, and the TV has a swapped mainboard. Do the dry run first and read its output.
+- **Tested on one real TV.** Run on a MiTV-AXSO0 (Android 9, swapped mainboard) in October 2026: 19 packages disabled, the stock-launcher tier never run, and `rollback.sh` checked against it. Plus a simulated TV (`test/run.sh`, 47 scenarios). Other Mi models may differ, so do the dry run first and read its output.
 
 ## Before you start
 

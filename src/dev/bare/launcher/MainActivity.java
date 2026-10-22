@@ -14,8 +14,6 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.graphics.Rect;
-import android.graphics.Typeface;
-import android.graphics.drawable.GradientDrawable;
 import android.media.tv.TvContract;
 import android.media.tv.TvInputInfo;
 import android.media.tv.TvInputManager;
@@ -52,9 +50,11 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Bare: one calm grid of the apps you chose, in the order you chose, on a backdrop lit by
- * whatever you're about to open. The first row is your top row. Hold OK on anything for
- * options, including Move. Nothing is recommended to you, nothing runs in the background.
+ * Bare: one calm grid of the apps you chose, in the order you chose, over a photograph.
+ * The first row is a glass dock under a large clock; the rest of the grid lies below it.
+ * Up from the dock (or a minute of nothing) tucks the apps down to the bottom edge and lets
+ * the picture have the screen; any key brings them back. Hold OK on anything for options.
+ * Nothing is recommended to you, nothing runs in the background.
  */
 public class MainActivity extends Activity implements Tile.Host, Sheet.Listener {
 
@@ -66,9 +66,20 @@ public class MainActivity extends Activity implements Tile.Host, Sheet.Listener 
     private static final String K_PINNED = "pinned";   // v2 favourites; read once to seed the order
     private static final String K_CUSTOM = "custom";   // JSON array of {id,label,target}
     private static final String K_LAUNCHES = "launches";
+    private static final String K_SOUNDS = "sounds";     // v3 on/off; read once to seed K_VOLUME
+    private static final String K_VOLUME = "volume";     // Sounds.OFF / SOFT / LOUD
+    private static final String K_AUTOHIDE = "autohide"; // tuck the apps away when idle
+    private static final String K_ROTATE = "rotate";     // index into ROTATE_MS
+    private static final String K_PHOTO = "photo";       // index of the picture showing
+    private static final String K_PHOTO_AT = "photoAt";  // when it was put up, System.currentTimeMillis()
+
+    private static final long IDLE_MS = 60_000;
+    private static final long[] ROTATE_MS = { 15 * 60_000L, 60 * 60_000L, 24 * 60 * 60_000L };
+    private static final String[] ROTATE_NAMES = { "Every 15 min", "Hourly", "Daily" };
+    private static final String STOCK_HOME = "com.google.android.tvlauncher";
 
     static final String KEY_INPUTS = "@inputs", KEY_SETTINGS = "@settings", KEY_ADD = "+";
-    static final int COLS = 5;
+    static final int COLS = 6;
 
     /** A TV input (HDMI, AV) as the Inputs tile lists it. */
     static final class Input {
@@ -84,19 +95,21 @@ public class MainActivity extends Activity implements Tile.Host, Sheet.Listener 
     private List<Input> inputs = new ArrayList<>();
 
     private FrameLayout root, content;
-    private Backdrop backdrop;
-    private View dock, clock;
-    private LinearLayout offline;
-    private TextView toast, moveHint;
+    private Wallpaper wallpaper;
+    private Tray tray;
+    private LinearLayout clock, status, offline;
+    private TextView caption, toast, moveHint;
     private Sheet sheet;
+    private Sounds sounds;
 
-    private int screenW, screenH, margin, gap, cardW, cardH, labelSpace, pitchY, gridTop, dockGap, topInset;
-    private boolean rich, deep;
-    private float scroll;
+    private int screenW, screenH, margin, pad, gap, cardW, cardH, labelSpace, labelBand, pitchY, gridTop, rowGap, topInset;
+    private boolean rich, deep, calm;
+    private float scroll, calmY, calmScale;
     private String focusKey;
     private Tile moving, menuFor;
-    private final Runnable showAmbient = this::applyAmbient;
     private final Runnable hideToast = () -> toast.animate().alpha(0f).translationY(dp(12)).setDuration(220).start();
+    private final Runnable goCalm = () -> setCalm(true, true);
+    private final Runnable rotate = this::rotateIfDue;
 
     private final BroadcastReceiver pkgReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
@@ -120,15 +133,22 @@ public class MainActivity extends Activity implements Tile.Host, Sheet.Listener 
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        // The light sweep across a focused card is for TVs with GPU to spare. This class of
+        // TV (1 GB, Mali-450) isn't flagged low-RAM, so judge by memory as well.
         ActivityManager am = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
-        rich = am == null || !am.isLowRamDevice();
+        ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo();
+        if (am != null) am.getMemoryInfo(mi);
+        rich = am == null || (!am.isLowRamDevice() && mi.totalMem > 1536L * 1024 * 1024);
+        getWindow().setBackgroundDrawable(null);   // the wallpaper covers the window
+        sounds = new Sounds(this, prefs.getInt(K_VOLUME, prefs.getBoolean(K_SOUNDS, true) ? Sounds.LOUD : Sounds.OFF));
         measure();
         setContentView(buildUi());
+        wallpaper.show(prefs.getInt(K_PHOTO, 0));
         handleAdd(getIntent());
 
         int launches = prefs.getInt(K_LAUNCHES, 0);
         prefs.edit().putInt(K_LAUNCHES, launches + 1).apply();
-        if (launches < 3) root.postDelayed(() -> say("Tip: hold OK on any app for options"), 1400);
+        if (launches < 3) root.postDelayed(() -> say("Press Up for just the picture  ·  Hold OK for options"), 1400);
     }
 
     @Override
@@ -143,6 +163,8 @@ public class MainActivity extends Activity implements Tile.Host, Sheet.Listener 
         registerReceiver(netReceiver, new IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION));
         updateNet();
         reload();
+        rotateIfDue();
+        poke();
     }
 
     @Override
@@ -150,6 +172,8 @@ public class MainActivity extends Activity implements Tile.Host, Sheet.Listener 
         super.onStop();
         unregisterReceiver(pkgReceiver);
         unregisterReceiver(netReceiver);
+        root.removeCallbacks(rotate);
+        root.removeCallbacks(goCalm);
     }
 
     @Override
@@ -159,7 +183,9 @@ public class MainActivity extends Activity implements Tile.Host, Sheet.Listener 
         // Home pressed while already home: everything closes, back to the first tile.
         if (sheet.isOpen()) sheet.close(null);
         if (moving != null) endMove();
+        setCalm(false, true);
         if (!entries.isEmpty()) focus(tiles.get(entries.get(0).key), 0, 0);
+        poke();
     }
 
     @Override
@@ -184,55 +210,56 @@ public class MainActivity extends Activity implements Tile.Host, Sheet.Listener 
 
     // ------------------------------------------------------------ layout
 
-    /** Everything is sized from the screen, so 1366x768 and 1920x1080 look the same. */
+    /**
+     * Everything is sized from the screen, so 1280x720, 1366x768 and 1920x1080 look the same.
+     * The dock sits in the lower third with the names under its apps; the second row's top
+     * edge peeks in at the bottom, the way tvOS hints there is more below. Tucked away, the
+     * dock shrinks a little and settles just above the bottom edge.
+     */
     private void measure() {
         screenW = getResources().getDisplayMetrics().widthPixels;
         screenH = getResources().getDisplayMetrics().heightPixels;
-        margin = Math.round(screenW * 0.05f);
-        gap = Math.round(screenW * 0.026f);
-        cardW = (screenW - 2 * margin - (COLS - 1) * gap) / COLS;
-        cardH = Math.round(cardW * 9f / 16f);
-        labelSpace = Math.round(cardH * 0.52f);
+        margin = Math.round(screenW * 0.045f);
+        pad = Math.round(screenW * 0.011f);
+        gap = Math.round(screenW * 0.017f);
+        cardW = (screenW - 2 * margin - 2 * pad - (COLS - 1) * gap) / COLS;
+        cardH = Math.round(cardW * 0.6f);   // 5:3, the tvOS icon shape
+        labelSpace = Math.round(cardH * 0.62f);
+        labelBand = Math.round(cardH * 0.38f);   // room for the names inside the dock
         pitchY = cardH + labelSpace;
-        gridTop = Math.round(screenH * 0.5f);
-        dockGap = Math.round(screenH * 0.045f);
+        gridTop = Math.round(screenH * 0.66f);
+        rowGap = Math.round(screenH * 0.05f);
         topInset = Math.round(screenH * 0.1f);
+        calmScale = 0.86f;
+        // Scaled about the dock's top edge, the compact dock's bottom lands near the screen's.
+        calmY = screenH * 0.965f - calmScale * (cardH + 2 * pad) - (gridTop - pad);
     }
 
     private View buildUi() {
         root = new FrameLayout(this);
-        root.setBackgroundColor(Backdrop.BASE);
-        backdrop = new Backdrop(this);
-        root.addView(backdrop, new FrameLayout.LayoutParams(-1, -1));
+        wallpaper = new Wallpaper(this);
+        root.addView(wallpaper, new FrameLayout.LayoutParams(-1, -1));
+
+        clock = buildClock();
+        root.addView(clock);
 
         content = new FrameLayout(this);
         content.setClipChildren(false);
         content.setClipToPadding(false);
+        content.setPivotX(screenW / 2f);
+        content.setPivotY(gridTop - pad);
         root.addView(content, new FrameLayout.LayoutParams(-1, screenH));
 
-        // The frosted shelf everything below the top row sits on.
-        dock = new View(this);
-        dock.setBackground(new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[] {
-                new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[] { 0x00FFFFFF, 0x0CFFFFFF }),
-                new android.graphics.drawable.ColorDrawable(0x0CFFFFFF) }));
-        content.addView(dock, new FrameLayout.LayoutParams(-1, screenH * 4));
+        // The glass dock the top row sits in; its corners follow the cards' with the padding added.
+        tray = new Tray(this, Glass.clear(cardW * 0.072f + pad, Math.max(1, dp(1))),
+                cardH + 2 * pad, cardH + labelBand + 2 * pad);
+        tray.setLayoutParams(new FrameLayout.LayoutParams(screenW - 2 * margin, cardH + labelBand + 2 * pad));
+        tray.setTranslationX(margin);
+        tray.setTranslationY(gridTop - pad);
+        content.addView(tray);
 
-        clock = buildClock();
-        content.addView(clock);
-
-        offline = new LinearLayout(this);
-        offline.setOrientation(LinearLayout.HORIZONTAL);
-        offline.setGravity(Gravity.CENTER_VERTICAL);
-        Glyph wifi = new Glyph(this, Glyph.WIFI_OFF);
-        wifi.setColor(0xB3FFFFFF);
-        offline.addView(wifi, new LinearLayout.LayoutParams(dp(20), dp(20)));
-        TextView ot = label("Not connected", 14, 0xB3FFFFFF, "sans-serif-medium");
-        ot.setPadding(dp(10), 0, 0, 0);
-        offline.addView(ot);
-        FrameLayout.LayoutParams ol = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
-        ol.topMargin = Math.round(screenH * 0.06f);
-        ol.rightMargin = margin;
-        root.addView(offline, ol);
+        status = buildStatus();
+        root.addView(status);
 
         moveHint = pill("Move with the arrows  ·  Press OK when done");
         moveHint.setAlpha(0f);
@@ -248,43 +275,85 @@ public class MainActivity extends Activity implements Tile.Host, Sheet.Listener 
         return root;
     }
 
-    private View buildClock() {
-        LinearLayout box = new LinearLayout(this);
+    /**
+     * Top left, large: the time, the date under it and, while the apps are tucked away, where
+     * the picture was taken. The time uses tabular digits so it doesn't shuffle as it ticks.
+     */
+    private LinearLayout buildClock() {
+        LinearLayout box = new LinearLayout(this) {
+            @Override public boolean hasOverlappingRendering() { return false; }   // fades without a layer
+        };
         box.setOrientation(LinearLayout.VERTICAL);
-
-        TextClock date = new TextClock(this);
-        String pattern = DateFormat.getBestDateTimePattern(Locale.getDefault(), "EEEEdMMMM");
-        date.setFormat12Hour(pattern);
-        date.setFormat24Hour(pattern);
-        date.setTextSize(17);
-        date.setTextColor(0xCCFFFFFF);
-        date.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        date.setIncludeFontPadding(false);
 
         TextClock time = new TextClock(this);
         time.setFormat12Hour("h:mm");
         time.setFormat24Hour("HH:mm");
         time.setTextSize(TypedValueSp.of(this, screenH * 0.135f));
         time.setTextColor(0xFFFFFFFF);
-        time.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
-        time.setIncludeFontPadding(false);
+        time.setTypeface(Fonts.get(this, "sans-serif-medium"));
+        time.setFontFeatureSettings("tnum");
         time.setLetterSpacing(-0.02f);
+        time.setIncludeFontPadding(false);
+        time.setShadowLayer(dp(10), 0, dp(1), 0x40000000);
+        box.addView(time);
 
-        box.addView(date);
-        LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(-2, -2);
-        tl.topMargin = dp(6);
-        box.addView(time, tl);
+        TextClock date = new TextClock(this);
+        String day = DateFormat.getBestDateTimePattern(Locale.getDefault(), "EEEEdMMMM");
+        date.setFormat12Hour(day);
+        date.setFormat24Hour(day);
+        date.setTextSize(TypedValueSp.of(this, screenH * 0.034f));
+        date.setTextColor(0xE6FFFFFF);
+        date.setTypeface(Fonts.get(this, "sans-serif-medium"));
+        date.setIncludeFontPadding(false);
+        date.setShadowLayer(dp(8), 0, dp(1), 0x40000000);
+        LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(-2, -2);
+        dl.topMargin = Math.round(screenH * 0.012f);
+        dl.leftMargin = Math.round(screenH * 0.006f);
+        box.addView(date, dl);
 
-        box.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
+        caption = label("", 13, 0xB3FFFFFF, "sans-serif");   // a Tile.Flat: fades without a layer
+        caption.setShadowLayer(dp(6), 0, dp(1), 0x59000000);
+        caption.setAlpha(0f);
+        LinearLayout.LayoutParams cl = new LinearLayout.LayoutParams(-2, -2);
+        cl.topMargin = Math.round(screenH * 0.022f);
+        cl.leftMargin = dl.leftMargin;
+        box.addView(caption, cl);
+
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-2, -2);
-        lp.leftMargin = margin - dp(2);
-        lp.topMargin = gridTop - Math.round(screenH * 0.065f) - box.getMeasuredHeight();
+        lp.leftMargin = margin;
+        lp.topMargin = Math.round(screenH * 0.075f);
         box.setLayoutParams(lp);
         return box;
     }
 
-    private int slotX(int i) { return margin + (i % COLS) * (cardW + gap); }
-    private int slotY(int i) { int r = i / COLS; return gridTop + r * pitchY + (r > 0 ? dockGap : 0); }
+    /** Top right, a small glass pill that appears only when the TV is offline. */
+    private LinearLayout buildStatus() {
+        LinearLayout pill = new LinearLayout(this);
+        pill.setOrientation(LinearLayout.HORIZONTAL);
+        pill.setGravity(Gravity.CENTER_VERTICAL);
+        pill.setPadding(dp(14), dp(7), dp(16), dp(7));
+        pill.setBackground(Glass.clear(dp(20), Math.max(1, dp(1))));
+
+        offline = pill;
+        Glyph wifi = new Glyph(this, Glyph.WIFI_OFF);
+        wifi.setColor(0xE6FFFFFF);
+        pill.addView(wifi, new LinearLayout.LayoutParams(dp(16), dp(16)));
+        TextView ot = label("Offline", 13, 0xE6FFFFFF, "sans-serif-medium");
+        ot.setPadding(dp(7), 0, 0, 0);
+        pill.addView(ot);
+
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
+        lp.topMargin = Math.round(screenH * 0.085f);
+        lp.rightMargin = margin;
+        pill.setLayoutParams(lp);
+        return pill;
+    }
+
+    private int slotX(int i) { return margin + pad + (i % COLS) * (cardW + gap); }
+    private int slotY(int i) {
+        int r = i / COLS;
+        return r == 0 ? gridTop : gridTop + cardH + labelBand + pad + rowGap + (r - 1) * pitchY;
+    }
 
     /** Places every tile in its slot, reusing tile views across reloads. */
     private void layoutTiles(boolean animate) {
@@ -304,6 +373,7 @@ public class MainActivity extends Activity implements Tile.Host, Sheet.Listener 
             } else {
                 t.bind(e);
             }
+            t.setQuiet(calm);
             float x = slotX(i), y = slotY(i);
             if (animate && !fresh) {
                 t.animate().translationX(x).translationY(y).setDuration(300).setInterpolator(Tile.EASE).start();
@@ -316,18 +386,7 @@ public class MainActivity extends Activity implements Tile.Host, Sheet.Listener 
             Map.Entry<String, Tile> me = it.next();
             if (!live.contains(me.getKey())) { content.removeView(me.getValue()); it.remove(); }
         }
-        dock.setVisibility(entries.size() > COLS ? View.VISIBLE : View.INVISIBLE);
-        float dockTop = gridTop + pitchY - labelSpace * 0.15f;
-        dock.setTranslationY(dockTop);
         int bottom = slotY(Math.max(0, entries.size() - 1)) + pitchY + screenH;
-        int dockH = bottom - Math.round(dockTop);
-        android.graphics.drawable.LayerDrawable ld = (android.graphics.drawable.LayerDrawable) dock.getBackground();
-        ld.setLayerInset(0, 0, 0, 0, dockH - (dockGap + labelSpace / 2));
-        ld.setLayerInset(1, 0, dockGap + labelSpace / 2, 0, 0);
-        if (dock.getLayoutParams().height != dockH) {
-            dock.getLayoutParams().height = dockH;
-            dock.requestLayout();
-        }
         // Tall enough for every row, so nothing below the first screen is ever culled.
         if (content.getLayoutParams().height != bottom) {
             content.getLayoutParams().height = bottom;
@@ -341,16 +400,9 @@ public class MainActivity extends Activity implements Tile.Host, Sheet.Listener 
     public void onTileFocused(Tile t) {
         focusKey = t.entry.key;
         scrollTo(indexOf(focusKey) / COLS);
-        root.removeCallbacks(showAmbient);
-        root.postDelayed(showAmbient, 90);
     }
 
-    private void applyAmbient() {
-        Tile t = tiles.get(focusKey);
-        if (t != null) backdrop.show(Art.ambient(t.entry));
-    }
-
-    /** Keeps the focused row comfortably on screen. Row 0 is home: the clock is in view. */
+    /** Keeps the focused row comfortably on screen. Row 0 is home: the clock and the picture are in view. */
     private void scrollTo(int row) {
         float target;
         if (row == 0) {
@@ -367,11 +419,78 @@ public class MainActivity extends Activity implements Tile.Host, Sheet.Listener 
         boolean d = row > 0;
         if (d == deep) return;
         deep = d;
-        clock.animate().alpha(d ? 0f : 1f).setDuration(d ? 200 : 400).start();
+        // Into the grid, the clock drifts up and away and the picture frosts over behind the apps.
+        clock.animate().alpha(d ? 0f : 1f).translationY(d ? -screenH * 0.05f : 0)
+                .setDuration(d ? 260 : 460).setInterpolator(Tile.EASE).start();
+        status.animate().alpha(d ? 0f : 1f).setDuration(d ? 200 : 400).start();
         android.animation.ValueAnimator va = android.animation.ValueAnimator.ofFloat(d ? 0f : 1f, d ? 1f : 0f);
-        va.setDuration(420);
-        va.addUpdateListener(a -> backdrop.setDepth((float) a.getAnimatedValue()));
+        va.setDuration(d ? 420 : 520);
+        va.setInterpolator(Tile.EASE);
+        va.addUpdateListener(a -> wallpaper.setDepth((float) a.getAnimatedValue()));
         va.start();
+    }
+
+    // ------------------------------------------------------------ tucked away
+
+    /**
+     * Calm: the dock shrinks to the bottom edge, names and focus fade, the scrim lifts and the
+     * picture's place and photographer appear under the date. Only from the home row.
+     */
+    private void setCalm(boolean c, boolean animate) {
+        if (c && (deep || moving != null || sheet.isOpen())) return;
+        root.removeCallbacks(goCalm);
+        if (c == calm) return;
+        calm = c;
+        for (Tile t : tiles.values()) t.setQuiet(c);
+        Wallpaper.Photo p = wallpaper.current();
+        if (c) caption.setText(p == null || p.place.isEmpty() ? "" : p.credit.isEmpty() ? p.place : p.place + "  ·  " + p.credit);
+        long ms = animate ? (c ? 900 : 420) : 0;
+        content.animate().translationY(c ? calmY : scroll).scaleX(c ? calmScale : 1f).scaleY(c ? calmScale : 1f)
+                .setDuration(ms).setInterpolator(Tile.EASE).start();
+        caption.animate().alpha(c ? 1f : 0f).setStartDelay(c ? 450 : 0).setDuration(c ? 700 : 200).start();
+        android.animation.ValueAnimator va = android.animation.ValueAnimator.ofFloat(c ? 0f : 1f, c ? 1f : 0f);
+        va.setDuration(ms);
+        va.setInterpolator(Tile.EASE);
+        va.addUpdateListener(a -> {
+            float v = (float) a.getAnimatedValue();
+            wallpaper.setCalm(v);
+            tray.setFill(1f - v);
+        });
+        va.start();
+        if (animate) sounds.air();
+    }
+
+    /** Something happened: postpone tucking the apps away. */
+    private void poke() {
+        root.removeCallbacks(goCalm);
+        if (prefs.getBoolean(K_AUTOHIDE, true) && !calm) root.postDelayed(goCalm, IDLE_MS);
+    }
+
+    // ------------------------------------------------------------ pictures
+
+    /** Puts up the next picture when the current one has been up long enough, and books the next check. */
+    private void rotateIfDue() {
+        root.removeCallbacks(rotate);
+        long period = ROTATE_MS[Math.min(ROTATE_MS.length - 1, prefs.getInt(K_ROTATE, 0))];
+        long now = System.currentTimeMillis(), at = prefs.getLong(K_PHOTO_AT, 0);
+        if (at == 0 || at > now) {
+            prefs.edit().putLong(K_PHOTO_AT, now).apply();
+            at = now;
+        } else if (now - at >= period) {
+            nextPicture();
+            at = now;
+        }
+        root.postDelayed(rotate, Math.max(60_000, period - (now - at)));
+    }
+
+    private void nextPicture() {
+        int i = (prefs.getInt(K_PHOTO, 0) + 1) % wallpaper.count();
+        prefs.edit().putInt(K_PHOTO, i).putLong(K_PHOTO_AT, System.currentTimeMillis()).apply();
+        wallpaper.show(i);
+        if (calm) root.postDelayed(() -> {
+            Wallpaper.Photo p = wallpaper.current();
+            caption.setText(p == null || p.place.isEmpty() ? "" : p.credit.isEmpty() ? p.place : p.place + "  ·  " + p.credit);
+        }, 800);
     }
 
     private int indexOf(String key) {
@@ -387,14 +506,27 @@ public class MainActivity extends Activity implements Tile.Host, Sheet.Listener 
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
-        if (sheet.isOpen()) return super.dispatchKeyEvent(e);
         int k = e.getKeyCode();
         int dx = k == KeyEvent.KEYCODE_DPAD_LEFT ? -1 : k == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : 0;
         int dy = k == KeyEvent.KEYCODE_DPAD_UP ? -1 : k == KeyEvent.KEYCODE_DPAD_DOWN ? 1 : 0;
         boolean arrow = dx != 0 || dy != 0;
         boolean ok = k == KeyEvent.KEYCODE_DPAD_CENTER || k == KeyEvent.KEYCODE_ENTER
                 || k == KeyEvent.KEYCODE_NUMPAD_ENTER || k == KeyEvent.KEYCODE_BUTTON_A;
-
+        poke();
+        if (calm) {
+            // Any remote key brings the apps back and does nothing else; volume and media keys pass.
+            if (arrow || ok || k == KeyEvent.KEYCODE_BACK || k == KeyEvent.KEYCODE_MENU) {
+                if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) { setCalm(false, true); poke(); }
+                return true;
+            }
+            return super.dispatchKeyEvent(e);
+        }
+        if (sheet.isOpen()) {
+            View before = root.findFocus();
+            boolean r = super.dispatchKeyEvent(e);
+            if (arrow && e.getAction() == KeyEvent.ACTION_DOWN && root.findFocus() != before) sounds.tick();
+            return r;
+        }
         if (moving != null) {
             if (arrow && e.getAction() == KeyEvent.ACTION_DOWN) { shift(dx, dy); return true; }
             if (ok) { if (e.getAction() == KeyEvent.ACTION_UP) endMove(); return true; }
@@ -425,8 +557,9 @@ public class MainActivity extends Activity implements Tile.Host, Sheet.Listener 
 
         int i = indexOf(cur.entry.key), n = entries.size();
         int j = neighbour(i, dx, dy, n);
-        if (j < 0) cur.bump(dx, dy);
-        else focus(tiles.get(entries.get(j).key), dx, dy);
+        if (j < 0 && dy < 0 && i < COLS) { setCalm(true, true); return true; }   // up off the dock
+        if (j < 0) { cur.bump(dx, dy); sounds.thud(); }
+        else { focus(tiles.get(entries.get(j).key), dx, dy); sounds.tick(); }
         return true;
     }
 
@@ -455,7 +588,8 @@ public class MainActivity extends Activity implements Tile.Host, Sheet.Listener 
         int i = indexOf(moving.entry.key), n = entries.size();
         int j = neighbour(i, dx, dy, n);
         if (j >= 0 && !entries.get(j).movable()) j = -1;
-        if (j < 0) { moving.bump(dx, dy); return; }
+        if (j < 0) { moving.bump(dx, dy); sounds.thud(); return; }
+        sounds.tick();
         Entry e = entries.remove(i);
         entries.add(j, e);
         layoutTiles(true);
@@ -505,7 +639,7 @@ public class MainActivity extends Activity implements Tile.Host, Sheet.Listener 
             // Re-resolved every time, so installing or removing the target app is reflected.
             Resolved r = resolve(target);
             e.launch = r == null ? null : r.intent;
-            if (e.icon != (r == null ? null : r.icon)) { e.icon = r == null ? null : r.icon; e.glow = 0; e.ambient = null; }
+            if (e.icon != (r == null ? null : r.icon)) { e.icon = r == null ? null : r.icon; e.glow = 0; }
             found.add(e);
         }
 
@@ -620,7 +754,7 @@ public class MainActivity extends Activity implements Tile.Host, Sheet.Listener 
     }
 
     private void updateNet() {
-        offline.setVisibility(isOnline() ? View.GONE : View.VISIBLE);
+        status.setVisibility(isOnline() ? View.GONE : View.VISIBLE);
     }
 
     // ------------------------------------------------------------ prefs
@@ -730,6 +864,7 @@ public class MainActivity extends Activity implements Tile.Host, Sheet.Listener 
     // ------------------------------------------------------------ actions
 
     private void activate(Tile t) {
+        sounds.tock();
         Entry e = t.entry;
         switch (e.kind) {
             case Entry.ADD: showAddMenu(t); return;
@@ -787,6 +922,7 @@ public class MainActivity extends Activity implements Tile.Host, Sheet.Listener 
             sheet.row(Glyph.TRASH, "Uninstall", () ->
                     open(new Intent(Intent.ACTION_DELETE, Uri.parse("package:" + e.pkg)), null));
         }
+        sheet.row(Glyph.SLIDERS, "Bare settings…", () -> showSettings(t));
         present(t);
     }
 
@@ -804,7 +940,78 @@ public class MainActivity extends Activity implements Tile.Host, Sheet.Listener 
         sheet.begin("Add", 320);
         sheet.row(Glyph.GLOBE, "Shortcut to an app or link…", this::showAddForm);
         if (!hidden.isEmpty()) sheet.row(Glyph.SHOW, "Hidden apps (" + hidden.size() + ")…", () -> showUnhide(t));
+        sheet.row(Glyph.SLIDERS, "Bare settings…", () -> showSettings(t));
         present(t);
+    }
+
+    /** Bare's own settings. Values change in place; the sheet stays open until Back. */
+    private void showSettings(final Tile t) {
+        sheet.begin("Bare", 400);
+        int vol = sounds.level();
+        sheet.option(Glyph.SOUND, "Sounds", new String[] { "Loud", "Soft", "Off" },
+                vol == Sounds.LOUD ? 0 : vol == Sounds.SOFT ? 1 : 2, i -> {
+                    sounds.setLevel(i == 0 ? Sounds.LOUD : i == 1 ? Sounds.SOFT : Sounds.OFF);
+                    prefs.edit().putInt(K_VOLUME, sounds.level()).apply();
+                    sounds.tock();
+                });
+        sheet.option(Glyph.DOCK, "Hide apps after a minute", new String[] { "On", "Off" },
+                prefs.getBoolean(K_AUTOHIDE, true) ? 0 : 1, i -> prefs.edit().putBoolean(K_AUTOHIDE, i == 0).apply());
+        sheet.option(Glyph.PHOTO, "New picture", ROTATE_NAMES,
+                Math.min(ROTATE_NAMES.length - 1, prefs.getInt(K_ROTATE, 0)), i -> {
+                    prefs.edit().putInt(K_ROTATE, i).apply();
+                    rotateIfDue();
+                });
+        sheet.row(Glyph.PHOTO, "Show the next picture", this::nextPicture);
+        sheet.row(Glyph.HOME, HomeKey.running ? "Home button opens Bare" : "Make Home open Bare…", this::showHomeSetup);
+        if (getPackageManager().getLaunchIntentForPackage(STOCK_HOME) != null
+                || getPackageManager().getLeanbackLaunchIntentForPackage(STOCK_HOME) != null) {
+            sheet.row(Glyph.TV, "Open the Google TV home screen", this::openStockHome);
+        }
+        present(t);
+    }
+
+    /**
+     * The TV's own launcher outranks every app for the Home button, so Bare offers an
+     * accessibility service instead (HomeKey). It can only be turned on by the owner, in Settings.
+     */
+    private void showHomeSetup() {
+        sheet.begin(HomeKey.running ? "Home button" : "Make Home open Bare", 460);
+        if (!HomeKey.running && !hasAccessibilityScreen()) {
+            // Some firmware (Xiaomi's, for one) ships Settings without an Accessibility screen.
+            sheet.note("This TV's Settings has no Accessibility screen, so the switch for Bare\n"
+                    + "can only be turned on from a computer, over adb:\n"
+                    + "settings put secure enabled_accessibility_services " + getPackageName() + "/.HomeKey\n"
+                    + "settings put secure accessibility_enabled 1");
+            sheet.buttons(new String[] { "OK" }, new Runnable[] { null }, new boolean[] { true });
+            present(null);
+            return;
+        }
+        if (HomeKey.running) {
+            sheet.note("Bare is answering the Home button. The Google TV home screen is still installed;\n"
+                    + "to hand Home back to it, turn off Bare in Settings › Accessibility.");
+        } else {
+            sheet.note("In the next screen, choose Bare under Services and turn it on.\n"
+                    + "Bare then opens whenever you press Home. It only watches the Home\n"
+                    + "button and which home screen is showing, nothing else.");
+        }
+        sheet.buttons(new String[] { "Not now", "Open Settings" }, new Runnable[] { null, () ->
+                open(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS), null) }, new boolean[] { true, true });
+        present(null);
+    }
+
+    /** True when something other than the framework's empty stub answers ACCESSIBILITY_SETTINGS. */
+    private boolean hasAccessibilityScreen() {
+        ResolveInfo ri = getPackageManager().resolveActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS), 0);
+        return ri != null && ri.activityInfo != null && !ri.activityInfo.packageName.contains("frameworkpackagestubs");
+    }
+
+    private void openStockHome() {
+        PackageManager pm = getPackageManager();
+        Intent i = pm.getLeanbackLaunchIntentForPackage(STOCK_HOME);
+        if (i == null) i = pm.getLaunchIntentForPackage(STOCK_HOME);
+        if (i == null) { say("The Google TV home screen isn't available"); return; }
+        HomeKey.visitingStock = true;   // until the next Home press
+        open(i, null);
     }
 
     private void showAddForm() {
@@ -851,10 +1058,12 @@ public class MainActivity extends Activity implements Tile.Host, Sheet.Listener 
 
     /** Opens the sheet beside {@code t} (or centred) with the rest of the grid stepped back. */
     private void present(Tile t) {
+        root.removeCallbacks(goCalm);
         menuFor = t;
         content.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
         for (Tile o : tiles.values()) o.setRecede(o != t);
         if (t != null) t.setHeld(true);
+        sounds.pop();
         sheet.show(t == null ? null : cardRect(t));
     }
 
@@ -866,6 +1075,7 @@ public class MainActivity extends Activity implements Tile.Host, Sheet.Listener 
         for (Tile o : tiles.values()) { o.setRecede(false); if (o != moving) o.setHeld(false); }
         if (back == null && !entries.isEmpty()) back = tiles.get(entries.get(0).key);
         if (back != null) back.requestFocus();
+        poke();
     }
 
     /** Where the lifted card is on screen, for placing a sheet beside it. */
@@ -889,32 +1099,53 @@ public class MainActivity extends Activity implements Tile.Host, Sheet.Listener 
     private TextView pill(String s) {
         TextView t = label(s, 15, 0xFFFFFFFF, "sans-serif-medium");
         t.setPadding(dp(22), dp(12), dp(22), dp(12));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(24));
-        bg.setColor(0xF0242428);
-        bg.setStroke(1, 0x1FFFFFFF);
-        t.setBackground(bg);
+        t.setBackground(Glass.solid(dp(24), Math.max(1, dp(1))));
         t.setElevation(dp(12));
         return t;
     }
 
     private FrameLayout.LayoutParams bottomCentre() {
+        // Just above the tray, so a message never covers the top row.
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        lp.bottomMargin = Math.round(screenH * 0.07f);
+        lp.bottomMargin = screenH - (gridTop - pad) + dp(14);
         return lp;
     }
 
     private TextView label(String s, float sp, int color, String family) {
-        TextView t = new TextView(this);
+        TextView t = new Tile.Flat(this);
         t.setText(s);
         t.setTextSize(sp);
         t.setTextColor(color);
-        t.setTypeface(Typeface.create(family, Typeface.NORMAL));
+        t.setTypeface(Fonts.get(this, family));
         t.setIncludeFontPadding(false);
         return t;
     }
 
     private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
+
+    /**
+     * The dock's glass, drawn at a height between its compact size (just the cards) and its full
+     * size (cards and names), so it can shrink without a relayout.
+     */
+    private static final class Tray extends View {
+        private final android.graphics.drawable.Drawable glass;
+        private final int compact, full;
+        private float fill = 1f;
+
+        Tray(Context c, android.graphics.drawable.Drawable glass, int compact, int full) {
+            super(c);
+            this.glass = glass;
+            this.compact = compact;
+            this.full = full;
+        }
+
+        void setFill(float f) { fill = f; invalidate(); }
+
+        @Override protected void onDraw(android.graphics.Canvas c) {
+            glass.setBounds(0, 0, getWidth(), Math.round(compact + (full - compact) * fill));
+            glass.draw(c);
+        }
+    }
 
     /** Converts a pixel height into the sp value that renders at that height. */
     private static final class TypedValueSp {

@@ -7,14 +7,13 @@ import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.Shader;
-import android.graphics.Typeface;
 import android.graphics.drawable.AdaptiveIconDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
 
 /**
- * Card artwork, drawn straight onto a canvas so the same code paints tiles, the hero
- * backdrop and the colour sampling. In order of preference: the app's TV banner, its
+ * Card artwork, drawn straight onto a canvas so the same code paints tiles and the colour
+ * sampling. In order of preference: the app's TV banner, its
  * adaptive icon spread edge to edge, or its icon on a plate tinted from its own colour.
  */
 final class Art {
@@ -72,7 +71,7 @@ final class Art {
             TEXT.setColor(0xF2FFFFFF);
             TEXT.setTextAlign(Paint.Align.CENTER);
             TEXT.setTextSize(h * 0.46f);
-            TEXT.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+            TEXT.setTypeface(Fonts.peek("sans-serif-black"));
             Paint.FontMetrics fm = TEXT.getFontMetrics();
             c.drawText(l, w / 2f, h / 2f - (fm.ascent + fm.descent) / 2f, TEXT);
         }
@@ -164,43 +163,5 @@ final class Art {
                 Math.round(Color.red(a) * t + Color.red(b) * (1 - t)),
                 Math.round(Color.green(a) * t + Color.green(b) * (1 - t)),
                 Math.round(Color.blue(a) * t + Color.blue(b) * (1 - t)));
-    }
-
-    // ---------------------------------------------------------------- ambient
-
-    /** A 64x36 render of the card, heavily blurred. Upscaled, it becomes the backdrop. */
-    static Bitmap ambient(Entry e) {
-        if (e.ambient != null) return e.ambient;
-        final int w = 64, h = 36;
-        Bitmap b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
-        Canvas c = new Canvas(b);
-        c.drawColor(0xFF000000);
-        try { draw(c, e, w, h); } catch (RuntimeException ignored) { }
-        int[] px = new int[w * h];
-        b.getPixels(px, 0, w, 0, 0, w, h);
-        for (int pass = 0; pass < 3; pass++) blur(px, w, h, 4);
-        b.setPixels(px, 0, w, 0, 0, w, h);
-        return e.ambient = b;
-    }
-
-    /** One separable box-blur pass, edges clamped. Plenty for a 64x36 image. */
-    private static void blur(int[] px, int w, int h, int r) {
-        int[] tmp = new int[px.length];
-        for (int pass = 0; pass < 2; pass++) {
-            int[] src = pass == 0 ? px : tmp, dst = pass == 0 ? tmp : px;
-            int len = pass == 0 ? w : h, lines = pass == 0 ? h : w;
-            for (int line = 0; line < lines; line++) {
-                for (int i = 0; i < len; i++) {
-                    int rs = 0, gs = 0, bs = 0, n = 0;
-                    for (int k = -r; k <= r; k++) {
-                        int j = Math.min(len - 1, Math.max(0, i + k));
-                        int p = pass == 0 ? src[line * w + j] : src[j * w + line];
-                        rs += (p >> 16) & 0xFF; gs += (p >> 8) & 0xFF; bs += p & 0xFF; n++;
-                    }
-                    int out = 0xFF000000 | ((rs / n) << 16) | ((gs / n) << 8) | (bs / n);
-                    if (pass == 0) dst[line * w + i] = out; else dst[i * w + line] = out;
-                }
-            }
-        }
     }
 }
